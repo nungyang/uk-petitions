@@ -1,0 +1,58 @@
+/* Hide the radio button circles */
+.form-check-input {
+    display: none !important;
+}
+
+/* Clickable petition item */
+.form-check {
+    margin-bottom: 10px !important;
+    padding: 12px 15px !important;
+    border-bottom: 1px solid #e0e0e0;
+    transition: all 0.2s ease;
+    cursor: pointer !important;
+    border-radius: 4px;
+}
+
+/* Petition text - allows wrapping */
+.form-check-label {
+    white-space: normal !important;
+    line-height: 1.5 !important;
+    cursor: pointer !important;
+    padding-left: 0 !important;
+    word-wrap: break-word !important;
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 0 !important;
+}
+
+/* Hover effect */
+.form-check:hover {
+    background-color: #f0f0f0;
+}
+
+/* Selected petition - highlighted */
+.form-check:has(.form-check-input:checked) {
+    background-color: #e3f2fd;
+    border-left: 4px solid #0d6efd;
+    padding-left: 11px;
+    font-weight: 500;
+}
+
+/* Scrollbar styling */
+div[style*="overflowY: auto"]::-webkit-scrollbar {
+    width: 8px;
+}
+
+div[style*="overflowY: auto"]::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+div[style*="overflowY: auto"]::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+div[style*="overflowY: auto"]::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
