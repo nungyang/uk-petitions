@@ -5,9 +5,12 @@ import pandas as pd
 import geopandas as gpd
 
 petitions = pd.read_csv('Data/petitions.csv')
-df = petitions[petitions['petition_id'].isin([706513])].copy()
+petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
+
 constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
 
+
+## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
 server = app.server
 
@@ -24,10 +27,12 @@ banner = dbc.Navbar(
 
 mytitle = dcc.Markdown(children='')
 mygraph = dcc.Graph(figure={}, config={'scrollZoom': False, 'doubleClick': False, 'displayModeBar': False})
-dropdown = dcc.Dropdown(options = df['petition_title'].unique().tolist(),
-                        value = 'Every school & college to be obliged to have an evacuation chair & training',
-                        clearable = False,
-                        placeholder = "Choose a petition..." )
+dropdown = dbc.RadioItems(id='petition-dropdown',
+                            options=[{'label': row['petition_title'], 'value': row['petition_id']}
+                                    for _, row in petition_options.iterrows()],
+                            value=petition_options.iloc[0]['petition_id'],
+                            style={'maxHeight': '80vh', 'overflowY': 'auto', 'padding': '10px'}
+)
 
 app.layout = html.Div([
     banner,
@@ -37,10 +42,12 @@ app.layout = html.Div([
                 html.H5("Filters", className="mb-3"),
                 dbc.Label("Select a Petition:"),
                 dropdown
-            ], width=2, style={
+            ], style={
                 'backgroundColor': '#f8f9fa', 
                 'padding': '20px',
                 'borderRight': '2px solid #dee2e6',
+                'minWidth': '400px',
+                'maxWidth': '400px'
             }),
 
             dbc.Col([
@@ -55,13 +62,19 @@ app.layout = html.Div([
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
-    Input(dropdown, 'value')
+    Input('petition-dropdown', 'value')
 )
 
-def update_graph(petition_name):  # function arguments come from the component property of the Input
+def update_graph(petition_id):  # function arguments come from the component property of the Input
+    
+    df = petitions[petitions['petition_id'] == petition_id].copy()
 
-    print(petition_name)
-    print(type(petition_name))
+    # Get the petition title for display
+    petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
+
+    print(petition_title)
+    print(type(petition_title))
+
     fig = px.choropleth(df,
                         locations='PCON24CD',
                         geojson=constituencies,
@@ -69,7 +82,8 @@ def update_graph(petition_name):  # function arguments come from the component p
                         color='signature_count',
                         color_continuous_scale="Viridis",
                         height=800,
-                        range_color=[0, df['signature_count'].quantile(0.95)])
+                        range_color=[0, df['signature_count'].quantile(0.95)],
+                        labels={'signature_count': 'Number of signatures'})
     fig.update_geos(
         visible=False,
         fitbounds="locations"
@@ -77,7 +91,7 @@ def update_graph(petition_name):  # function arguments come from the component p
 
     fig.update_layout(dragmode=False)
 
-    return fig, '# '+petition_name  # returned objects are assigned to the component property of the Output
+    return fig, '# ' + petition_title  # returned objects are assigned to the component property of the Output
 
 if __name__=='__main__':
     app.run(debug=False)
