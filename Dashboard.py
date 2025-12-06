@@ -62,29 +62,29 @@ app.layout = html.Div([
 
             dbc.Col([
                 dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),                dbc.Row([
-                    dbc.Col([mygraph], width=7),
+                    dbc.Col([mygraph], width=8),
                     dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6("Total Signatures", className="text-muted mb-2"),
-                                html.H3("123,456", className="mb-0")
+                                html.H6("Total Signatures", className="text-white mb-2"),
+                                html.H3("123,456", className="mb-0 text-white")
                             ])
-                        ], className="mb-3 shadow-sm", color="primary", outline=True),
+                        ], className="mb-3 shadow", color="primary", inverse=True, style={'borderRadius': '15px', 'cursor': 'pointer'}),
                         
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6("Constituencies", className="text-muted mb-2"),
-                                html.H3("650", className="mb-0")
+                                html.H6("Constituencies", className="text-white mb-2"),
+                                html.H3("650", className="mb-0 text-white")
                             ])
-                        ], className="mb-3 shadow-sm", color="info", outline=True),
+                        ], className="mb-3 shadow", color="info", inverse=True, style={'borderRadius': '15px', 'cursor': 'pointer'}),
                         
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6("Average per Area", className="text-muted mb-2"),
-                                html.H3("190", className="mb-0")
+                                html.H6("Average per Area", className="text-white mb-2"),
+                                html.H3("190", className="mb-0 text-white")
                             ])
-                        ], className="shadow-sm", color="success", outline=True)
-                    ], width=5)
+                        ], className="shadow", color="success", inverse=True, style={'borderRadius': '15px', 'cursor': 'pointer'})                  
+                    ], width=3)
                 ])
             ], style={'flex': '1'})
         ], style={'minHeight': '80vh'})
@@ -127,8 +127,8 @@ def update_graph(petition_id):  # function arguments come from the component pro
         visible=False,
         projection_scale=0.8,
         center=dict(lat=54.5, lon=-3),
-        lataxis_range=[49, 61],
-        lonaxis_range=[-9, 3]
+        lataxis_range=[48, 60],
+        lonaxis_range=[-10, 4]
     )
     fig.update_layout(
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
