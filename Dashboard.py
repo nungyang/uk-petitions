@@ -25,7 +25,7 @@ banner = dbc.Navbar(
     dark=True,
 )
 
-mytitle = dcc.Markdown(children='')
+mytitle = dcc.Markdown(children='', style={'margin': '10px 0 0 0'})
 
 mygraph = dcc.Graph(
     figure={}, 
@@ -34,7 +34,8 @@ mygraph = dcc.Graph(
         'displayModeBar': True,
         'displaylogo': False,
         'modeBarButtonsToRemove': ['select2d', 'lasso2d']
-    }
+    },
+    style={'height': '85vh'}
 )
 
 dropdown = dbc.RadioItems(id='petition-dropdown',
@@ -60,12 +61,36 @@ app.layout = html.Div([
             }),
 
             dbc.Col([
-                dbc.Row([mytitle]),  # Dropdown in top left
-                dbc.Row([mygraph])    # Title in top right
+                dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),                dbc.Row([
+                    dbc.Col([mygraph], width=7),
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Total Signatures", className="text-muted mb-2"),
+                                html.H3("123,456", className="mb-0")
+                            ])
+                        ], className="mb-3 shadow-sm", color="primary", outline=True),
+                        
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Constituencies", className="text-muted mb-2"),
+                                html.H3("650", className="mb-0")
+                            ])
+                        ], className="mb-3 shadow-sm", color="info", outline=True),
+                        
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Average per Area", className="text-muted mb-2"),
+                                html.H3("190", className="mb-0")
+                            ])
+                        ], className="shadow-sm", color="success", outline=True)
+                    ], width=5)
+                ])
             ], style={'flex': '1'})
-        ], style={'minHeight': '100vh'})
+        ], style={'minHeight': '80vh'})
     ], fluid=True)
 ])
+
 
 # Callback allows components to interact
 @app.callback(
@@ -90,7 +115,6 @@ def update_graph(petition_id):  # function arguments come from the component pro
                         featureidkey="properties.PCON24CD",
                         color='signature_count',
                         color_continuous_scale="Viridis",
-                        height=800,
                         range_color=[0, df['signature_count'].quantile(0.95)],
                         labels={'signature_count': 'Number of signatures',
                                 'PCON24CD': 'Constituency Code',
@@ -101,7 +125,10 @@ def update_graph(petition_id):  # function arguments come from the component pro
     
     fig.update_geos(
         visible=False,
-        fitbounds="locations"
+        projection_scale=0.8,
+        center=dict(lat=54.5, lon=-3),
+        lataxis_range=[49, 61],
+        lonaxis_range=[-9, 3]
     )
     fig.update_layout(
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
