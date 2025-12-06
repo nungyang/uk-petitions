@@ -76,7 +76,14 @@ app.layout = html.Div([
                                 html.H6("Scheduled debate date", className="text-white mb-2"),
                                 html.H3(id='sch-debate-date', className="mb-0 text-white")
                             ])
-                        ], className="mb-3 shadow", color="info", inverse=True, style={'borderRadius': '15px'}),            
+                        ], className="mb-3 shadow", color="info", inverse=True, style={'borderRadius': '15px'}),        
+
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Constituency with most signatures", className="text-white mb-2"),
+                                html.H3(id='highest-count-con', className="mb-0 text-white")
+                            ])
+                        ], className="mb-3 shadow", color="success", inverse=True, style={'borderRadius': '15px'}),       
                     ], width=3)
                 ])
             ], style={'flex': '1'})
@@ -91,6 +98,7 @@ app.layout = html.Div([
     Output(mytitle, 'children'),
     Output('total-sigs', 'children'),
     Output('sch-debate-date', 'children'),
+    Output('highest-count-con', 'children'),
     Input('petition-dropdown', 'value')
 )
 
@@ -103,8 +111,13 @@ def update_graph(petition_id):  # function arguments come from the component pro
 
     # Getting summary stats
     total_signatures = df['signature_count'].sum()
+
     sch_debate_date = df['scheduled_debate_date'].iloc[0] if 'scheduled_debate_date' in df.columns else None
     debate_date_str = str(sch_debate_date) if pd.notna(sch_debate_date) else "Not scheduled"
+
+    max_row = df.loc[df['signature_count'].idxmax()]
+    highest_count_con = max_row['constituency_name']
+    highest_count = max_row['signature_count']
 
 
     print(petition_title)
@@ -144,7 +157,7 @@ def update_graph(petition_id):  # function arguments come from the component pro
         yanchor="middle")
     )
 
-    return fig, '# ' + petition_title, f"{total_signatures:,}", debate_date_str
+    return fig, '# ' + petition_title, f"{total_signatures:,}", debate_date_str, f"{highest_count_con} ({highest_count:,})"
 
 if __name__=='__main__':
     app.run(debug=False)
