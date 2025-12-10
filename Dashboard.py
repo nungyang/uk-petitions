@@ -10,7 +10,8 @@ petitions = pd.read_csv('Data/petitions.csv')
 petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
 
 constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
-constituencies.geometry = constituencies.geometry.simplify(tolerance=0.03, preserve_topology=True)
+constituencies.geometry = constituencies.geometry.simplify(tolerance=0.05, preserve_topology=True)
+constituencies = constituencies[['PCON24CD', 'geometry']]  # Only keep needed columns
 
 ## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
