@@ -36,7 +36,6 @@ mygraph = dcc.Graph(
         'displayModeBar': True,
         'displaylogo': False,
         'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
-        'toImageButtonOptions': {'height': 500, 'width': 700}
     },
     style={'height': '85vh'}
 )
@@ -64,8 +63,15 @@ app.layout = html.Div([
             }),
 
             dbc.Col([
-                dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),                dbc.Row([
-                    dbc.Col([mygraph], width=8),
+                dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),
+                dbc.Row([
+                    dbc.Col([
+                        dcc.Loading(
+                            id="loading",
+                            type="circle",  # or "default", "dot", "cube"
+                            children=[mygraph]
+                        )
+                    ], width=8),
                     dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
