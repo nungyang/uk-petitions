@@ -35,7 +35,8 @@ mygraph = dcc.Graph(
         'scrollZoom': True,
         'displayModeBar': True,
         'displaylogo': False,
-        'modeBarButtonsToRemove': ['select2d', 'lasso2d']
+        'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
+        'toImageButtonOptions': {'height': 500, 'width': 700}
     },
     style={'height': '85vh'}
 )
