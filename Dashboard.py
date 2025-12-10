@@ -66,7 +66,13 @@ app.layout = html.Div([
             dbc.Col([
                 dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),
                 dbc.Row([
-                    dbc.Col([mygraph], width=8),
+                    dbc.Col([
+                        dcc.Loading(
+                            id="loading",
+                            type="circle",
+                            children=[mygraph]
+                        )
+                    ], width=8),
                     dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
