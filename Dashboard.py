@@ -3,12 +3,14 @@ import dash_bootstrap_components as dbc
 import plotly.express as px
 import pandas as pd
 import geopandas as gpd
+from functools import lru_cache
+
 
 petitions = pd.read_csv('Data/petitions.csv')
 petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
 
 constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
-
+constituencies.geometry = constituencies.geometry.simplify(tolerance=0.01)
 
 ## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
