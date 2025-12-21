@@ -13,6 +13,9 @@ constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_Ju
 constituencies.geometry = constituencies.geometry.simplify(tolerance=0.05, preserve_topology=True)
 constituencies = constituencies[['PCON24CD', 'geometry']]  # Only keep needed columns
 
+# Precompute quantiles
+petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
+
 ## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
 server = app.server
@@ -102,7 +105,6 @@ app.layout = html.Div([
 ])
 
 
-# Callback allows components to interact
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
@@ -112,62 +114,6 @@ app.layout = html.Div([
     Input('petition-dropdown', 'value')
 )
 
-def update_graph(petition_id):  # function arguments come from the component property of the Input
-    
-    df = petitions[petitions['petition_id'] == petition_id].copy()
+def update_graph(petition_id):
 
-    # Get the petition title for display
-    petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
-
-    # Getting summary stats
-    total_signatures = df['signature_count'].sum()
-
-    sch_debate_date = df['scheduled_debate_date'].iloc[0] if 'scheduled_debate_date' in df.columns else None
-    debate_date_str = str(sch_debate_date) if pd.notna(sch_debate_date) else "Not scheduled"
-
-    max_row = df.loc[df['signature_count'].idxmax()]
-    highest_count_con = max_row['constituency_name']
-    highest_count = max_row['signature_count']
-
-
-    print(petition_title)
-    print(type(petition_title))
-
-    fig = px.choropleth(df,
-                        locations='PCON24CD',
-                        geojson=constituencies,
-                        featureidkey="properties.PCON24CD",
-                        color='signature_count',
-                        color_continuous_scale="Viridis",
-                        range_color=[0, df['signature_count'].quantile(0.95)],
-                        labels={'signature_count': 'Number of signatures',
-                                'PCON24CD': 'Constituency Code',
-                                'constituency_name': 'Constituency'},  # Add custom labels
-                        hover_data={'PCON24CD': False,
-                                    'constituency_name': True,     # Show constituency name
-                                    'signature_count': True}) # And signature count
-    
-    fig.update_geos(
-        visible=False,
-        projection_scale=0.8,
-        center=dict(lat=54.5, lon=-3),
-        lataxis_range=[48, 60],
-        lonaxis_range=[-10, 4]
-    )
-    fig.update_layout(
-        margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        uirevision='constant',
-        coloraxis_colorbar=dict(
-        title="Signatures",
-        thickness=15,
-        len=0.7,  # 70% of plot height
-        x=1.0,  # Position on right
-        xanchor="left",
-        y=0.5,  # Center vertically
-        yanchor="middle")
-    )
-
-    return fig, '# ' + petition_title, f"{total_signatures:,}", debate_date_str, f"{highest_count_con} ({highest_count:,})"
-
-if __name__=='__main__':
-    app.run(debug=False)
+    df = petitions[petitions['petition_id'] == petition_id]
