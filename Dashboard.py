@@ -12,6 +12,8 @@ petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates(
 constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
 constituencies.geometry = constituencies.geometry.simplify(tolerance=0.05, preserve_topology=True)
 constituencies = constituencies[['PCON24CD', 'geometry']]  # Only keep needed columns
+petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
+
 
 ## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
@@ -128,6 +130,7 @@ def update_graph(petition_id):  # function arguments come from the component pro
     max_row = df.loc[df['signature_count'].idxmax()]
     highest_count_con = max_row['constituency_name']
     highest_count = max_row['signature_count']
+    max_color = petition_quantiles.get(petition_id, df['signature_count'].max())
 
 
     print(petition_title)
@@ -139,7 +142,7 @@ def update_graph(petition_id):  # function arguments come from the component pro
                         featureidkey="properties.PCON24CD",
                         color='signature_count',
                         color_continuous_scale="Viridis",
-                        range_color=[0, df['signature_count'].quantile(0.95)],
+                        range_color=[0, max_color],
                         labels={'signature_count': 'Number of signatures',
                                 'PCON24CD': 'Constituency Code',
                                 'constituency_name': 'Constituency'},  # Add custom labels
