@@ -1,3 +1,4 @@
+import time
 from dash import Dash, dcc, Output, Input, html
 import dash_bootstrap_components as dbc
 import plotly.express as px
@@ -5,20 +6,35 @@ import pandas as pd
 import geopandas as gpd
 from functools import lru_cache
 
+# Read the CSV and GeoJSON data
+start = time.time()  # Start timer
 
+@lru_cache(maxsize=1)
+def get_constituencies():
+    # Read the GeoJSON file, but only keep necessary columns
+    constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
+    constituencies = constituencies[['PCON24CD', 'geometry']]
+    constituencies['geometry'] = constituencies['geometry'].simplify(0.001) 
+    return constituencies
+
+# Load the constituencies data
+constituencies = get_constituencies()
+
+
+# Loading petition data
 petitions = pd.read_csv('Data/petitions.csv')
 petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
 
-constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
-constituencies = constituencies[['PCON24CD', 'geometry']]  # Only keep needed columns
+print(f"Time to load data: {time.time() - start} seconds")  # Print time taken to load data
 petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
 
-# Creating cache
+# Caching petition data
 @lru_cache(maxsize=128)
 def get_petition_data(petition_id):
+    start = time.time()  # Start timer
     df = petitions[petitions['petition_id'] == petition_id]
-    return tuple(df.itertuples(index=False))  # This converts the dataframe to a hashable tuple
-
+    print(f"Time to retrieve petition data from cache: {time.time() - start} seconds")
+    return tuple(df.itertuples(index=False))  # Return as tuple for caching
 
 
 ## Creating app
@@ -119,31 +135,33 @@ app.layout = html.Div([
     Output('highest-count-con', 'children'),
     Input('petition-dropdown', 'value')
 )
-
 def update_graph(petition_id):  # function arguments come from the component property of the Input
+    start = time.time()  # Start timer for callback execution
     
-    # Retrieve the cached petition data and convert it back to DataFrame
+    # Retrieve the cached petition data
     cached_data = get_petition_data(petition_id)
     df = pd.DataFrame(cached_data, columns=petitions.columns)
-
-    # Get the petition title for display
+    
+    print(f"Time to retrieve and process petition data: {time.time() - start} seconds")  # Time to load data into DataFrame
+    
+    # Extract petition information
     petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
-
-    # Getting summary stats
     total_signatures = df['signature_count'].sum()
-
+    
+    # Get scheduled debate date
     sch_debate_date = df['scheduled_debate_date'].iloc[0] if 'scheduled_debate_date' in df.columns else None
     debate_date_str = str(sch_debate_date) if pd.notna(sch_debate_date) else "Not scheduled"
-
+    
+    # Find the constituency with the most signatures
     max_row = df.loc[df['signature_count'].idxmax()]
     highest_count_con = max_row['constituency_name']
     highest_count = max_row['signature_count']
+    
+    # Get the maximum color scale value
     max_color = petition_quantiles.get(petition_id, df['signature_count'].max())
-
-
-    print(petition_title)
-    print(type(petition_title))
-
+    
+    # Create choropleth figure
+    start_plot = time.time()  # Start timer for plotting
     fig = px.choropleth(df,
                         locations='PCON24CD',
                         geojson=constituencies,
@@ -153,10 +171,10 @@ def update_graph(petition_id):  # function arguments come from the component pro
                         range_color=[0, max_color],
                         labels={'signature_count': 'Number of signatures',
                                 'PCON24CD': 'Constituency Code',
-                                'constituency_name': 'Constituency'},  # Add custom labels
+                                'constituency_name': 'Constituency'},  
                         hover_data={'PCON24CD': False,
-                                    'constituency_name': True,     # Show constituency name
-                                    'signature_count': True}) # And signature count
+                                    'constituency_name': True,     
+                                    'signature_count': True}) 
     
     fig.update_geos(
         visible=False,
@@ -169,16 +187,19 @@ def update_graph(petition_id):  # function arguments come from the component pro
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         uirevision='constant',
         coloraxis_colorbar=dict(
-        title="Signatures",
-        thickness=15,
-        len=0.7,  # 70% of plot height
-        x=1.0,  # Position on right
-        xanchor="left",
-        y=0.5,  # Center vertically
-        yanchor="middle")
+            title="Signatures",
+            thickness=15,
+            len=0.7, 
+            x=1.0, 
+            xanchor="left",
+            y=0.5,  
+            yanchor="middle")
     )
+    
+    print(f"Time to plot the choropleth: {time.time() - start_plot} seconds")  # Time for plotting
 
     return fig, '# ' + petition_title, f"{total_signatures:,}", debate_date_str, f"{highest_count_con} ({highest_count:,})"
+
 
 if __name__=='__main__':
     app.run(debug=False)
