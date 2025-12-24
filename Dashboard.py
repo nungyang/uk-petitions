@@ -13,6 +13,11 @@ constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_Ju
 constituencies = constituencies[['PCON24CD', 'geometry']]  # Only keep needed columns
 petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
 
+# Creating cache
+@lru_cache(maxsize=128)
+def get_petition_data(petition_id):
+    return petitions[petitions['petition_id'] == petition_id]
+
 
 ## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
@@ -115,7 +120,7 @@ app.layout = html.Div([
 
 def update_graph(petition_id):  # function arguments come from the component property of the Input
     
-    df = petitions[petitions['petition_id'] == petition_id].copy()
+    df = get_petition_data(petition_id)
 
     # Get the petition title for display
     petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
