@@ -16,7 +16,9 @@ petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantil
 # Creating cache
 @lru_cache(maxsize=128)
 def get_petition_data(petition_id):
-    return petitions[petitions['petition_id'] == petition_id]
+    df = petitions[petitions['petition_id'] == petition_id]
+    return tuple(df.itertuples(index=False))  # This converts the dataframe to a hashable tuple
+
 
 
 ## Creating app
@@ -120,7 +122,9 @@ app.layout = html.Div([
 
 def update_graph(petition_id):  # function arguments come from the component property of the Input
     
-    df = get_petition_data(petition_id)
+    # Retrieve the cached petition data and convert it back to DataFrame
+    cached_data = get_petition_data(petition_id)
+    df = pd.DataFrame(cached_data, columns=petitions.columns)
 
     # Get the petition title for display
     petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
