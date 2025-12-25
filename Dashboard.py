@@ -41,6 +41,40 @@ def get_petition_data(petition_id):
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
 server = app.server
 
+# Custom CSS for tabs
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            .tab {
+                padding: 12px 24px !important;
+                border: none !important;
+                background-color: #e9ecef !important;
+            }
+            .tab--selected {
+                background-color: white !important;
+            }
+            .tabs {
+                border-bottom: 1px solid #dee2e6 !important;
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 # Create banner
 banner = dbc.Navbar(
     dbc.Container([
@@ -65,68 +99,173 @@ mygraph = dcc.Graph(
     style={'height': '85vh'}
 )
 
-dropdown = dbc.RadioItems(id='petition-dropdown',
+petition_dropdown = dbc.RadioItems(id='petition-dropdown',
                           options=[{'label': row['petition_title'], 'value': row['petition_id']}
                                    for _, row in petition_options.iterrows()],
                             value=petition_options.iloc[0]['petition_id'],
                             style={'maxHeight': '80vh', 'overflowY': 'auto', 'padding': '10px'}
 )
 
+constituency_dropdown = dcc.Dropdown(
+    id='analytics-petition-dropdown',
+    options=[{'label': row['petition_title'], 'value': row['petition_id']}
+             for _, row in petition_options.iterrows()],
+    value=petition_options.iloc[0]['petition_id'],
+    clearable=False
+)
+
 app.layout = html.Div([
     banner,
     dbc.Container([
-        dbc.Row([
-            dbc.Col([
-                html.H5("Select a Petition", className="mb-3"),
-                dropdown
-            ], style={
-                'backgroundColor': '#f8f9fa', 
-                'padding': '20px',
-                'borderRight': '2px solid #dee2e6',
-                'minWidth': '400px',
-                'maxWidth': '400px'
-            }),
+        dcc.Tabs(id='main-tabs', value='tab-1', children=[
+            dcc.Tab(label='Constituency Overview', value='tab-1', children=[
+                html.Div([
+                    # Filter Section
+                    dbc.Card([
+                        dbc.CardBody([
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Select constituency:", className="fw-bold mb-2"),
+                                    constituency_dropdown
+                                ], md=4)
+                            ])
+                        ])
+                    ], className="mb-4 shadow-sm"),
+                    
+                    # KPI Cards Row
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Mean Signatures", className="text-muted mb-2"),
+                                    html.H3(id='kpi-mean', className="mb-0 text-primary"),
+                                    html.Small(id='kpi-mean-detail', className="text-muted")
+                                ])
+                            ], className="shadow-sm h-100")
+                        ], md=3),
+                        
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Median Signatures", className="text-muted mb-2"),
+                                    html.H3(id='kpi-median', className="mb-0 text-success"),
+                                    html.Small(id='kpi-median-detail', className="text-muted")
+                                ])
+                            ], className="shadow-sm h-100")
+                        ], md=3),
+                        
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Highest Constituency", className="text-muted mb-2"),
+                                    html.H3(id='kpi-max', className="mb-0 text-danger"),
+                                    html.Small(id='kpi-max-name', className="text-muted")
+                                ])
+                            ], className="shadow-sm h-100")
+                        ], md=3),
+                        
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Total Constituencies", className="text-muted mb-2"),
+                                    html.H3(id='kpi-count', className="mb-0 text-info"),
+                                    html.Small("Constituencies reporting", className="text-muted")
+                                ])
+                            ], className="shadow-sm h-100")
+                        ], md=3)
+                    ], className="mb-4")
+                    
+                ], style={'padding': '20px'})
+            ]),
 
-            dbc.Col([
-                dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),
+            dcc.Tab(label='Map', value='tab-2', children=[
                 dbc.Row([
                     dbc.Col([
-                        dcc.Loading(
-                            id="loading",
-                            type="circle",
-                            children=[mygraph]
-                        )
-                    ], width=8),
-                    dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H6("Total Signatures", className="text-white mb-2"),
-                                html.H3(id='total-sigs', className="mb-0 text-white")
-                            ])
-                        ], className="mb-3 shadow", color="primary", inverse=True, style={'borderRadius': '15px'}),
-                        
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H6("Scheduled debate date", className="text-white mb-2"),
-                                html.H3(id='sch-debate-date', className="mb-0 text-white")
-                            ])
-                        ], className="mb-3 shadow", color="info", inverse=True, style={'borderRadius': '15px'}),        
+                        html.H5("Select a Petition", className="mb-3"),
+                        petition_dropdown
+                    ], style={
+                        'backgroundColor': '#f8f9fa', 
+                        'padding': '20px',
+                        'borderRight': '2px solid #dee2e6',
+                        'minWidth': '400px',
+                        'maxWidth': '400px'
+                    }),
 
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H6("Constituency with most signatures", className="text-white mb-2"),
-                                html.H3(id='highest-count-con', className="mb-0 text-white")
-                            ])
-                        ], className="mb-3 shadow", color="success", inverse=True, style={'borderRadius': '15px'}),       
-                    ], width=3)
-                ])
-            ], style={'flex': '1'})
-        ], style={'minHeight': '80vh'})
+                    dbc.Col([
+                        dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),
+                        dbc.Row([
+                            dbc.Col([
+                                dcc.Loading(
+                                    id="loading",
+                                    type="circle",
+                                    children=[mygraph]
+                                )
+                            ], width=8),
+                            dbc.Col([
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.H6("Total Signatures", className="text-white mb-2"),
+                                        html.H3(id='total-sigs', className="mb-0 text-white")
+                                    ])
+                                ], className="mb-3 shadow", color="primary", inverse=True, style={'borderRadius': '15px'}),
+                                
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.H6("Scheduled debate date", className="text-white mb-2"),
+                                        html.H3(id='sch-debate-date', className="mb-0 text-white")
+                                    ])
+                                ], className="mb-3 shadow", color="info", inverse=True, style={'borderRadius': '15px'}),        
+
+                                dbc.Card([
+                                    dbc.CardBody([
+                                        html.H6("Constituency with most signatures", className="text-white mb-2"),
+                                        html.H3(id='highest-count-con', className="mb-0 text-white")
+                                    ])
+                                ], className="mb-3 shadow", color="success", inverse=True, style={'borderRadius': '15px'}),       
+                            ], width=3)
+                        ])
+                    ], style={'flex': '1'})
+                ], style={'minHeight': '80vh'})
+            ])
+        ])
     ], fluid=True)
 ])
 
-
 # Callback allows components to interact
+# Callback for Analytics KPI Cards
+@app.callback(
+    Output('analytics-total-sigs', 'children'),
+    Output('kpi-mean', 'children'),
+    Output('kpi-mean-detail', 'children'),
+    Output('kpi-median', 'children'),
+    Output('kpi-median-detail', 'children'),
+    Output('kpi-max', 'children'),
+    Output('kpi-max-name', 'children'),
+    Output('kpi-count', 'children'),
+    Input('analytics-petition-dropdown', 'value')
+)
+def update_kpi_cards(petition_id):
+    cached_data = get_petition_data(petition_id)
+    df = pd.DataFrame(cached_data, columns=petitions.columns)
+    
+    total_sigs = df['signature_count'].sum()
+    mean_sigs = df['signature_count'].mean()
+    median_sigs = df['signature_count'].median()
+    max_sigs = df['signature_count'].max()
+    max_constituency = df.loc[df['signature_count'].idxmax(), 'constituency_name']
+    count = len(df)
+    
+    return (
+        f"{total_sigs:,}",
+        f"{mean_sigs:,.0f}",
+        "per constituency",
+        f"{median_sigs:,.0f}",
+        "per constituency",
+        f"{max_sigs:,}",
+        max_constituency,
+        f"{count:,}"
+    )
+
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
