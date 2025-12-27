@@ -1,5 +1,5 @@
 import time
-from dash import Dash, dcc, Output, Input, html
+from dash import Dash, dcc, Output, Input, html, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import pandas as pd
@@ -11,22 +11,28 @@ start = time.time()  # Start timer
 
 @lru_cache(maxsize=1)
 def get_constituencies():
-    # Read the GeoJSON file, but only keep necessary columns
     constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
     constituencies = constituencies[['PCON24CD', 'geometry']]
-    constituencies['geometry'] = constituencies['geometry'].simplify(0.001) 
+    constituencies['geometry'] = constituencies['geometry'].simplify(0.005) 
     return constituencies
 
 # Load the constituencies data
 constituencies = get_constituencies()
 
+# Loading petition count data for first dashboard
+@lru_cache(maxsize=1)
+def get_open_petitions():
+    open_petitions = pd.read_csv('Data/open_petitions_counts.csv')
+    return open_petitions
+
+open_petitions = get_open_petitions()
+
+open_petitions_list = pd.read_csv('Data/open_petitions_list.csv')
+
 
 # Loading petition data
 petitions = pd.read_csv('Data/petitions.csv')
-petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
 
-print(f"Time to load data: {time.time() - start} seconds")  # Print time taken to load data
-petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
 
 # Caching petition data
 @lru_cache(maxsize=128)
@@ -36,6 +42,10 @@ def get_petition_data(petition_id):
     print(f"Time to retrieve petition data from cache: {time.time() - start} seconds")
     return tuple(df.itertuples(index=False))  # Return as tuple for caching
 
+# Getting list of unique petitions
+petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
+constituency_options = petitions[['PCON24CD', 'constituency_name']].drop_duplicates()
+petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
 
 ## Creating app
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
@@ -108,9 +118,9 @@ petition_dropdown = dbc.RadioItems(id='petition-dropdown',
 
 constituency_dropdown = dcc.Dropdown(
     id='analytics-petition-dropdown',
-    options=[{'label': row['petition_title'], 'value': row['petition_id']}
-             for _, row in petition_options.iterrows()],
-    value=petition_options.iloc[0]['petition_id'],
+    options=[{'label': row['constituency_name'], 'value': row['PCON24CD']}
+             for _, row in constituency_options.iterrows()],
+    value=constituency_options.iloc[0]['PCON24CD'],
     clearable=False
 )
 
@@ -173,8 +183,18 @@ app.layout = html.Div([
                                 ])
                             ], className="shadow-sm h-100")
                         ], md=3)
-                    ], className="mb-4")
-                    
+                    ], className="mb-4"),
+
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardHeader(html.H5("Top 10 Petitions", className="mb-0")),
+                                dbc.CardBody([
+                                    html.Div(id='top-10-table')
+                                ])
+                            ], className="shadow-sm")
+                        ])
+                    ])
                 ], style={'padding': '20px'})
             ]),
 
@@ -234,7 +254,6 @@ app.layout = html.Div([
 # Callback allows components to interact
 # Callback for Analytics KPI Cards
 @app.callback(
-    Output('analytics-total-sigs', 'children'),
     Output('kpi-mean', 'children'),
     Output('kpi-mean-detail', 'children'),
     Output('kpi-median', 'children'),
@@ -242,29 +261,73 @@ app.layout = html.Div([
     Output('kpi-max', 'children'),
     Output('kpi-max-name', 'children'),
     Output('kpi-count', 'children'),
+    Output('top-10-table', 'children'),
     Input('analytics-petition-dropdown', 'value')
 )
-def update_kpi_cards(petition_id):
-    cached_data = get_petition_data(petition_id)
-    df = pd.DataFrame(cached_data, columns=petitions.columns)
+def update_kpi_cards(PCON24CD):
+    df = open_petitions[open_petitions['PCON24CD'] == PCON24CD].copy()
     
-    total_sigs = df['signature_count'].sum()
+    # Get top 10
+    top_10 = df.nlargest(10, 'signature_count')[['petition_id', 'signature_count']].reset_index(drop=True)
+    
+    # Format signatures with commas
+    top_10['signatures_formatted'] = top_10['signature_count'].apply(lambda x: f"{int(x):,}")
+
     mean_sigs = df['signature_count'].mean()
     median_sigs = df['signature_count'].median()
     max_sigs = df['signature_count'].max()
     max_constituency = df.loc[df['signature_count'].idxmax(), 'constituency_name']
     count = len(df)
     
+    # Create DataTable
+    table = dash_table.DataTable(
+        data=top_10[['petition_id', 'signatures_formatted']].to_dict('records'),
+        columns=[
+            {'name': 'Petition name', 'id': 'petition_id'},
+            {'name': 'Signatures', 'id': 'signatures_formatted'}
+        ],
+        style_cell={
+            'textAlign': 'left',
+            'padding': '12px',
+            'fontFamily': 'Arial, sans-serif'
+        },
+        style_header={
+            'backgroundColor': '#f8f9fa',
+            'fontWeight': 'bold',
+            'borderBottom': '2px solid #dee2e6'
+        },
+        style_data={
+            'whiteSpace': 'normal',
+            'height': 'auto',
+            'lineHeight': '1.5'
+        },
+        style_cell_conditional=[
+            {
+                'if': {'column_id': 'signatures_formatted'},
+                'textAlign': 'right',
+                'fontWeight': '500'
+            }
+        ],
+        style_data_conditional=[
+            {
+                'if': {'row_index': 'odd'},
+                'backgroundColor': '#f8f9fa'
+            }
+        ]
+    )
+    
     return (
-        f"{total_sigs:,}",
         f"{mean_sigs:,.0f}",
         "per constituency",
         f"{median_sigs:,.0f}",
         "per constituency",
         f"{max_sigs:,}",
         max_constituency,
-        f"{count:,}"
+        f"{count:,}",
+        table
     )
+
+
 
 @app.callback(
     Output(mygraph, 'figure'),
