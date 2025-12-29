@@ -12,6 +12,7 @@ import pandas as pd
 import geopandas as gpd
 from functools import lru_cache
 from io import BytesIO
+import os
 
 ## Setting up connection to AW3
 aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')  # Railway environment variable
