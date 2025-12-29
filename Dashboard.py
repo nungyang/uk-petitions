@@ -1,3 +1,4 @@
+#### Loading libraries ####
 import time
 from dash import Dash, dcc, Output, Input, html, dash_table
 import dash_bootstrap_components as dbc
@@ -6,48 +7,49 @@ import pandas as pd
 import geopandas as gpd
 from functools import lru_cache
 
-# Read the CSV and GeoJSON data
+
+##########################
+#### Loading datasets ####
+##########################
+
 start = time.time()  # Start timer
 
 @lru_cache(maxsize=1)
-def get_constituencies():
+def get_constituency_geojson():
     constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
     constituencies = constituencies[['PCON24CD', 'geometry']]
     constituencies['geometry'] = constituencies['geometry'].simplify(0.005) 
     return constituencies
 
 # Load the constituencies data
-constituencies = get_constituencies()
+constituencies = get_constituency_geojson()
 
 # Loading petition count data for first dashboard
 @lru_cache(maxsize=1)
-def get_open_petitions():
-    open_petitions = pd.read_csv('Data/open_petitions_counts.csv')
-    return open_petitions
+def get_petitions_data():
+    petitions_list = pd.read_csv('Data/all_petitions_list.csv')
+    petitions_count = pd.read_csv('Data/all_petitions_counts.csv')
+    petitions_df = petitions_list.merge(petitions_count,
+                                        on = 'petition_id',
+                                        how = 'left')
+    return petitions_df
 
-open_petitions = get_open_petitions()
-
-open_petitions_list = pd.read_csv('Data/open_petitions_list.csv')
-
-
-# Loading petition data
-petitions = pd.read_csv('Data/petitions.csv')
-
+petitions_df = get_petitions_data()
 
 # Caching petition data
 @lru_cache(maxsize=128)
 def get_petition_data(petition_id):
     start = time.time()  # Start timer
-    df = petitions[petitions['petition_id'] == petition_id]
+    df = petitions_df[petitions_df['petition_id'] == petition_id]
     print(f"Time to retrieve petition data from cache: {time.time() - start} seconds")
     return tuple(df.itertuples(index=False))  # Return as tuple for caching
 
-# Getting list of unique petitions
-petition_options = petitions[['petition_id', 'petition_title']].drop_duplicates()
-constituency_options = petitions[['PCON24CD', 'constituency_name']].drop_duplicates()
-petition_quantiles = petitions.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
+print(petitions_df.head())
 
-## Creating app
+######################
+#### Creating app ####
+######################
+
 app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
 server = app.server
 
@@ -109,12 +111,20 @@ mygraph = dcc.Graph(
     style={'height': '85vh'}
 )
 
+#### Setting up dropdowns ####
+# Getting list of unique petitions
+petition_options = petitions_df[['petition_id', 'petition_title']].drop_duplicates()
+petition_quantiles = petitions_df.groupby('petition_id')['signature_count'].quantile(0.95).to_dict()
+
 petition_dropdown = dbc.RadioItems(id='petition-dropdown',
                           options=[{'label': row['petition_title'], 'value': row['petition_id']}
                                    for _, row in petition_options.iterrows()],
                             value=petition_options.iloc[0]['petition_id'],
                             style={'maxHeight': '80vh', 'overflowY': 'auto', 'padding': '10px'}
 )
+
+# Getting list of unique constituencies
+constituency_options = petitions_df[['PCON24CD', 'constituency_name']].drop_duplicates()
 
 constituency_dropdown = dcc.Dropdown(
     id='analytics-petition-dropdown',
@@ -124,6 +134,7 @@ constituency_dropdown = dcc.Dropdown(
     clearable=False
 )
 
+# App layout
 app.layout = html.Div([
     banner,
     dbc.Container([
@@ -265,7 +276,7 @@ app.layout = html.Div([
     Input('analytics-petition-dropdown', 'value')
 )
 def update_kpi_cards(PCON24CD):
-    df = open_petitions[open_petitions['PCON24CD'] == PCON24CD].copy()
+    df = petitions_df[petitions_df['PCON24CD'] == PCON24CD].copy()
     
     # Get top 10
     top_10 = df.nlargest(10, 'signature_count')[['petition_id', 'signature_count']].reset_index(drop=True)
@@ -329,6 +340,8 @@ def update_kpi_cards(PCON24CD):
 
 
 
+#### Setting up app call back, etc for dashboard 2 ####
+
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
@@ -342,7 +355,7 @@ def update_graph(petition_id):  # function arguments come from the component pro
     
     # Retrieve the cached petition data
     cached_data = get_petition_data(petition_id)
-    df = pd.DataFrame(cached_data, columns=petitions.columns)
+    df = pd.DataFrame(cached_data, columns=petitions_df.columns)
     
     print(f"Time to retrieve and process petition data: {time.time() - start} seconds")  # Time to load data into DataFrame
     
