@@ -1,11 +1,46 @@
-#### Loading libraries ####
+####################
+#### Setting up ####
+####################
+
+## Loading libraries
 import time
+import boto3
 from dash import Dash, dcc, Output, Input, html, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import pandas as pd
 import geopandas as gpd
 from functools import lru_cache
+from io import BytesIO
+
+## Setting up connection to AW3
+aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')  # Railway environment variable
+aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')  # Railway environment variable
+bucket = 'uk-parliament-petitions-bucket'
+
+s3_client = boto3.client('s3',
+                         aws_access_key_id=aws_access_key,
+                         aws_secret_access_key=aws_secret_key)
+
+## Creating functions to load files
+def load_csv(filename):
+    # Fetch the file object from S3
+    s3_object = s3_client.get_object(Bucket=bucket, Key=filename)
+    
+    # Load the CSV file into pandas DataFrame
+    file_stream = s3_object['Body']
+    df = pd.read_csv(file_stream)
+    return df
+
+def load_geojson(filename):
+    # Fetch the file object from S3
+    s3_object = s3_client.get_object(Bucket=bucket, Key=filename)
+    
+    # Load the GeoJSON file into GeoDataFrame
+    file_stream = s3_object['Body']
+    gdf = gpd.read_file(file_stream)
+    return gdf
+
 
 
 ##########################
@@ -16,7 +51,7 @@ start = time.time()  # Start timer
 
 @lru_cache(maxsize=1)
 def get_constituency_geojson():
-    constituencies = gpd.read_file('Data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
+    constituencies = load_geojson('static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
     constituencies = constituencies[['PCON24CD', 'geometry']]
     constituencies['geometry'] = constituencies['geometry'].simplify(0.005) 
     return constituencies
@@ -27,8 +62,8 @@ constituencies = get_constituency_geojson()
 # Loading petition count data for first dashboard
 @lru_cache(maxsize=1)
 def get_petitions_data():
-    petitions_list = pd.read_csv('Data/all_petitions_list.csv')
-    petitions_count = pd.read_csv('Data/all_petitions_counts.csv')
+    petitions_list = load_csv('dynamic data/all_petitions_list.csv')
+    petitions_count = load_csv('dynamic data/all_petitions_counts.csv')
     petitions_df = petitions_list.merge(petitions_count,
                                         on = 'petition_id',
                                         how = 'left')
