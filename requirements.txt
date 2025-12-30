@@ -1,7 +1,13 @@
+boto3
+beautifulsoup4==4.12.2
 dash==3.3.0
 dash_bootstrap_components==2.0.4
 geopandas==1.1.1
 pandas==2.3.3
 plotly==6.5.0
 gunicorn
-boto3
+requests==2.31.0
+aiohttp==3.9.1
+python-dateutil==2.8.2
+python-dotenv==1.0.0
+lxml==5.1.0
