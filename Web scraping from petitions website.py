@@ -3,7 +3,6 @@
 
 """
 Web scraping from UK petitions website
-Converts Jupyter notebook to standard Python script
 """
 
 # Importing libraries
