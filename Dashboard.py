@@ -1,7 +1,7 @@
 ####################
 #### Setting up ####
 ####################
-
+#%%
 ## Loading libraries
 import time
 import boto3
@@ -13,13 +13,23 @@ import geopandas as gpd
 from functools import lru_cache
 from io import BytesIO
 import os
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+from pathlib import Path
+from dotenv import load_dotenv
+
+
+# Setting up env file for local running and testing
+script_dir = Path(__file__).parent
+env_path = script_dir / '.env'
+load_dotenv(dotenv_path=env_path)
 
 ## Setting up connection to AW3
 aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
 aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 aws_region = os.getenv('AWS_DEFAULT_REGION')
 
-bucket = 'uk-parliament-petitions-bucket'
+bucket = 'uk-petitions-dashboard'
 
 s3_client = boto3.client('s3',
                          aws_access_key_id=aws_access_key,
@@ -47,9 +57,56 @@ def load_geojson(filename):
 
 
 
-##########################
+#%% ######################
 #### Loading datasets ####
 ##########################
+
+#%% For development only
+import pickle 
+
+start = time.time()  # Start timer
+
+# Add caching for constituencies
+try:
+    constituencies = pickle.load(open('cache_constituencies.pkl', 'rb'))
+    print("Loaded constituencies from cache!")
+except FileNotFoundError:
+    print("Loading constituencies from S3...")
+    @lru_cache(maxsize=1)
+    def get_constituency_geojson():
+        constituencies = load_geojson('static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
+        constituencies = constituencies[['PCON24CD', 'geometry']]
+        constituencies['geometry'] = constituencies['geometry'].simplify(0.005) 
+        return constituencies
+    
+    constituencies = get_constituency_geojson()
+    pickle.dump(constituencies, open('cache_constituencies.pkl', 'wb'))
+    print("Saved constituencies to cache!")
+
+# Add caching for petitions data
+try:
+    petitions_df = pickle.load(open('cache_petitions.pkl', 'rb'))
+    print("Loaded petitions data from cache!")
+except FileNotFoundError:
+    print("Loading petitions data from S3...")
+    @lru_cache(maxsize=1)
+    def get_petitions_data():
+        petitions_list = load_csv('dynamic data/dashboard_list.csv')
+        petitions_count = load_csv('dynamic data/dashboard_counts.csv')
+        petitions_df = petitions_list.merge(petitions_count,
+                                            on = 'petition_id',
+                                            how = 'left')
+        return petitions_df
+    
+    petitions_df = get_petitions_data()
+    pickle.dump(petitions_df, open('cache_petitions.pkl', 'wb'))
+    print("Saved petitions data to cache!")
+
+print(petitions_df.head())
+print(petitions_df.columns.tolist())
+print(petitions_df['status'].unique())
+
+#%% For deployment
 
 start = time.time()  # Start timer
 
@@ -66,8 +123,9 @@ constituencies = get_constituency_geojson()
 # Loading petition count data for first dashboard
 @lru_cache(maxsize=1)
 def get_petitions_data():
-    petitions_list = load_csv('dynamic data/all_petitions_list.csv')
-    petitions_count = load_csv('dynamic data/all_petitions_counts.csv')
+    
+    petitions_list = load_csv('dynamic data/dashboard_list.csv')
+    petitions_count = load_csv('dynamic data/dashboard_counts.csv')
     petitions_df = petitions_list.merge(petitions_count,
                                         on = 'petition_id',
                                         how = 'left')
@@ -85,7 +143,7 @@ def get_petition_data(petition_id):
 
 print(petitions_df.head())
 
-######################
+#%% ##################
 #### Creating app ####
 ######################
 
@@ -173,8 +231,10 @@ constituency_dropdown = dcc.Dropdown(
     clearable=False
 )
 
+
 # App layout
 app.layout = html.Div([
+    dcc.Location(id='url', refresh=True),
     banner,
     dbc.Container([
         dcc.Tabs(id='main-tabs', value='tab-1', children=[
@@ -190,60 +250,22 @@ app.layout = html.Div([
                                 ], md=4)
                             ])
                         ])
-                    ], className="mb-4 shadow-sm"),
+                    ], className="mb-4"),
                     
                     # KPI Cards Row
                     dbc.Row([
                         dbc.Col([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.H6("Mean Signatures", className="text-muted mb-2"),
-                                    html.H3(id='kpi-mean', className="mb-0 text-primary"),
-                                    html.Small(id='kpi-mean-detail', className="text-muted")
-                                ])
-                            ], className="shadow-sm h-100")
-                        ], md=3),
-                        
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.H6("Median Signatures", className="text-muted mb-2"),
-                                    html.H3(id='kpi-median', className="mb-0 text-success"),
-                                    html.Small(id='kpi-median-detail', className="text-muted")
-                                ])
-                            ], className="shadow-sm h-100")
-                        ], md=3),
-                        
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.H6("Highest Constituency", className="text-muted mb-2"),
-                                    html.H3(id='kpi-max', className="mb-0 text-danger"),
-                                    html.Small(id='kpi-max-name', className="text-muted")
-                                ])
-                            ], className="shadow-sm h-100")
-                        ], md=3),
-                        
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardBody([
-                                    html.H6("Total Constituencies", className="text-muted mb-2"),
-                                    html.H3(id='kpi-count', className="mb-0 text-info"),
-                                    html.Small("Constituencies reporting", className="text-muted")
-                                ])
-                            ], className="shadow-sm h-100")
-                        ], md=3)
-                    ], className="mb-4"),
-
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Card([
-                                dbc.CardHeader(html.H5("Top 10 Petitions", className="mb-0")),
-                                dbc.CardBody([
-                                    html.Div(id='top-10-table')
-                                ])
-                            ], className="shadow-sm")
-                        ])
+                            dbc.Card(
+                                dbc.CardBody(
+                                    [
+                                        html.H5("Top 10 Petitions", className="mb-1 text-center"),
+                                        html.Div(id='top-10-table')
+                                    ],
+                                    className="pt-2 pb-2"
+                                ),
+                                className="shadow-sm"
+                            )
+                        ], md=6)
                     ])
                 ], style={'padding': '20px'})
             ]),
@@ -301,86 +323,113 @@ app.layout = html.Div([
     ], fluid=True)
 ])
 
+#%%
 # Callback allows components to interact
 # Callback for Analytics KPI Cards
 @app.callback(
-    Output('kpi-mean', 'children'),
-    Output('kpi-mean-detail', 'children'),
-    Output('kpi-median', 'children'),
-    Output('kpi-median-detail', 'children'),
-    Output('kpi-max', 'children'),
-    Output('kpi-max-name', 'children'),
-    Output('kpi-count', 'children'),
     Output('top-10-table', 'children'),
     Input('analytics-petition-dropdown', 'value')
 )
 def update_kpi_cards(PCON24CD):
-    df = petitions_df[petitions_df['PCON24CD'] == PCON24CD].copy()
-    
-    # Get top 10
-    top_10 = df.nlargest(10, 'signature_count')[['petition_id', 'signature_count']].reset_index(drop=True)
-    
-    # Format signatures with commas
-    top_10['signatures_formatted'] = top_10['signature_count'].apply(lambda x: f"{int(x):,}")
+    open_df = petitions_df[(petitions_df['PCON24CD'] == PCON24CD) &
+                           (petitions_df['status'] == 'open')].copy()
 
-    mean_sigs = df['signature_count'].mean()
-    median_sigs = df['signature_count'].median()
-    max_sigs = df['signature_count'].max()
-    max_constituency = df.loc[df['signature_count'].idxmax(), 'constituency_name']
-    count = len(df)
+    top_10 = open_df.nlargest(10, 'signature_count')[
+        ['petition_title', 'signature_count', 'petition_url']
+    ].reset_index(drop=True)
+
+    max_val = top_10['signature_count'].max()
+    padding = max_val * 0.15
     
-    # Create DataTable
-    table = dash_table.DataTable(
-        data=top_10[['petition_id', 'signatures_formatted']].to_dict('records'),
-        columns=[
-            {'name': 'Petition name', 'id': 'petition_id'},
-            {'name': 'Signatures', 'id': 'signatures_formatted'}
-        ],
-        style_cell={
-            'textAlign': 'left',
-            'padding': '12px',
-            'fontFamily': 'Arial, sans-serif'
-        },
-        style_header={
-            'backgroundColor': '#f8f9fa',
-            'fontWeight': 'bold',
-            'borderBottom': '2px solid #dee2e6'
-        },
-        style_data={
-            'whiteSpace': 'normal',
-            'height': 'auto',
-            'lineHeight': '1.5'
-        },
-        style_cell_conditional=[
-            {
-                'if': {'column_id': 'signatures_formatted'},
-                'textAlign': 'right',
-                'fontWeight': '500'
-            }
-        ],
-        style_data_conditional=[
-            {
-                'if': {'row_index': 'odd'},
-                'backgroundColor': '#f8f9fa'
-            }
-        ]
+    # Wrap long titles - insert line break every 50 characters at word boundaries
+    def wrap_text(text, width=50):
+        words = text.split()
+        lines = []
+        current_line = []
+        current_length = 0
+        
+        for word in words:
+            if current_length + len(word) + 1 <= width:
+                current_line.append(word)
+                current_length += len(word) + 1
+            else:
+                lines.append(' '.join(current_line))
+                current_line = [word]
+                current_length = len(word)
+        
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        return '<br>'.join(lines)
+    
+    top_10['petition_title_wrapped'] = top_10['petition_title'].apply(wrap_text)
+    
+    # Create horizontal bar chart
+    fig = px.bar(
+        top_10,  # Make sure we're using the top_10 dataframe that has the wrapped column
+        x='signature_count',
+        y='petition_title_wrapped',
+        orientation='h',
+        custom_data=['petition_url'],
+        labels={'signature_count': 'Signatures', 'petition_title_wrapped': ''}
     )
     
-    return (
-        f"{mean_sigs:,.0f}",
-        "per constituency",
-        f"{median_sigs:,.0f}",
-        "per constituency",
-        f"{max_sigs:,}",
-        max_constituency,
-        f"{count:,}",
-        table
+    # Customize the layout
+    fig.update_layout(
+        yaxis={'categoryorder': 'total ascending'},
+        height=600,
+        margin=dict(l=280, r=20, t=10, b=40),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        bargap=0.5
     )
 
+    # Style the bars
+    fig.update_traces(
+        marker_color='#0d6efd',
+        marker_line_color='#0a58ca',
+        marker_line_width=1.5,
+        opacity=0.8,
+        text=top_10['signature_count'].apply(lambda x: f'{x:,}'),
+        textposition='outside',
+        textfont=dict(size=11, color='#333'),
+        hovertemplate=None,
+        hoverinfo='none'
+    )
+
+    fig.update_xaxes(
+        range=[-150, max_val + padding],
+        tickformat=',',
+        showgrid=True,
+        gridcolor='#e9ecef'
+    )
+    
+    # Update y-axis for better text display
+    fig.update_yaxes(
+        ticklen=40
+    )
+
+    return dcc.Graph(
+        id='top-10-bar-chart',
+        figure=fig,
+        config={'displayModeBar': False},
+        hoverData=None
+) 
+
+@app.callback(
+    Output('url', 'href'),
+    Input('top-10-bar-chart', 'clickData'),
+    prevent_initial_call=True
+)
+def redirect_on_bar_click(clickData):
+    if not clickData or 'points' not in clickData:
+        return no_update
+
+    petition_url = clickData['points'][0]['customdata'][0]
+    return petition_url
 
 
 #### Setting up app call back, etc for dashboard 2 ####
-
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
@@ -389,6 +438,7 @@ def update_kpi_cards(PCON24CD):
     Output('highest-count-con', 'children'),
     Input('petition-dropdown', 'value')
 )
+
 def update_graph(petition_id):  # function arguments come from the component property of the Input
     start = time.time()  # Start timer for callback execution
     
@@ -456,4 +506,4 @@ def update_graph(petition_id):  # function arguments come from the component pro
 
 
 if __name__=='__main__':
-    app.run(debug=False)
+    app.run(debug=False, port=8051)
