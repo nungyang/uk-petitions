@@ -1,6 +1,5 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
 .DS_Store
 .env
+venv/
+__pycache__/
+*.pyc

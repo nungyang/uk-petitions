@@ -55,59 +55,6 @@ def load_geojson(filename):
     gdf = gpd.read_file(file_stream)
     return gdf
 
-
-
-#%% ######################
-#### Loading datasets ####
-##########################
-
-#%% For development only
-import pickle 
-
-start = time.time()  # Start timer
-
-# Add caching for constituencies
-try:
-    constituencies = pickle.load(open('cache_constituencies.pkl', 'rb'))
-    print("Loaded constituencies from cache!")
-except FileNotFoundError:
-    print("Loading constituencies from S3...")
-    @lru_cache(maxsize=1)
-    def get_constituency_geojson():
-        constituencies = load_geojson('static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
-        constituencies = constituencies[['PCON24CD', 'geometry']]
-        constituencies['geometry'] = constituencies['geometry'].simplify(0.005) 
-        return constituencies
-    
-    constituencies = get_constituency_geojson()
-    pickle.dump(constituencies, open('cache_constituencies.pkl', 'wb'))
-    print("Saved constituencies to cache!")
-
-# Add caching for petitions data
-try:
-    petitions_df = pickle.load(open('cache_petitions.pkl', 'rb'))
-    print("Loaded petitions data from cache!")
-except FileNotFoundError:
-    print("Loading petitions data from S3...")
-    @lru_cache(maxsize=1)
-    def get_petitions_data():
-        petitions_list = load_csv('dynamic data/dashboard_list.csv')
-        petitions_count = load_csv('dynamic data/dashboard_counts.csv')
-        petitions_df = petitions_list.merge(petitions_count,
-                                            on = 'petition_id',
-                                            how = 'left')
-        return petitions_df
-    
-    petitions_df = get_petitions_data()
-    pickle.dump(petitions_df, open('cache_petitions.pkl', 'wb'))
-    print("Saved petitions data to cache!")
-
-print(petitions_df.head())
-print(petitions_df.columns.tolist())
-print(petitions_df['status'].unique())
-
-#%% For deployment
-
 start = time.time()  # Start timer
 
 @lru_cache(maxsize=1)
