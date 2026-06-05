@@ -1,4 +1,6 @@
+aiohttp==3.12.4
 blinker==1.9.0
+beautifulsoup4==4.13.4
 boto3==1.42.97
 botocore==1.42.97
 certifi==2026.5.20
@@ -38,5 +40,3 @@ tzdata==2026.2
 urllib3==1.26.20
 Werkzeug==3.1.8
 zipp==3.23.1
-beautifulsoup4==4.13.4
-aiohttp==3.12.4
