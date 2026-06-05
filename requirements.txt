@@ -39,4 +39,5 @@ urllib3==1.26.20
 Werkzeug==3.1.8
 zipp==3.23.1
 beautifulsoup4==4.13.4
+aiohttp==3.12.4beautifulsoup4==4.13.4
 aiohttp==3.12.4
