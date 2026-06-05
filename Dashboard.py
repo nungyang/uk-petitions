@@ -1,7 +1,7 @@
 ####################
 #### Setting up ####
 ####################
-#%%
+
 ## Loading libraries
 import time
 import boto3
@@ -17,7 +17,6 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from dotenv import load_dotenv
-
 
 # Setting up env file for local running and testing
 script_dir = Path(__file__).parent
@@ -55,8 +54,6 @@ def load_geojson(filename):
     gdf = gpd.read_file(file_stream)
     return gdf
 
-start = time.time()  # Start timer
-
 @lru_cache(maxsize=1)
 def get_constituency_geojson():
     constituencies = load_geojson('static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson')
@@ -64,7 +61,7 @@ def get_constituency_geojson():
     constituencies['geometry'] = constituencies['geometry'].simplify(0.005) 
     return constituencies
 
-# Load the constituencies data
+# Load constituencies data
 constituencies = get_constituency_geojson()
 
 # Loading petition count data for first dashboard
