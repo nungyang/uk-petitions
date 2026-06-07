@@ -92,16 +92,16 @@ async def fetch_dates_for_open_petitions(urls):
                 attrs = data['data']['attributes']
                 
                 debate_threshold_reached_date = None
-                debate_date = None
+                scheduled_debate_date = None
                 
                 if attrs.get('opened_at'):
                     opened = datetime.strptime(attrs['opened_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
                 if attrs.get('debate_threshold_reached_at'):
                     debate_threshold_reached_date = datetime.strptime(attrs['debate_threshold_reached_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
                 if attrs.get('scheduled_debate_date'):
-                    debate_date = datetime.strptime(attrs['scheduled_debate_date'], '%Y-%m-%d').date()
+                    scheduled_debate_date = datetime.strptime(attrs['scheduled_debate_date'], '%Y-%m-%d').date()
 
-            return opened, deadline, debate_threshold_reached_date, debate_date
+            return opened, deadline, debate_threshold_reached_date, scheduled_debate_date
             
         except Exception as e:
             print(f"Error processing {URL}: {e}")
