@@ -57,6 +57,7 @@ def load_geojson(filename):
 
 # ── Cached data loaders ───────────────────────────────────
 
+#COMMENT OUT WHEN TESTING LOCALLY
 @lru_cache(maxsize=1)
 def get_constituency_geojson():
     constituencies = load_geojson(
@@ -67,11 +68,28 @@ def get_constituency_geojson():
     return constituencies
 
 
+# COMMENT OUT WHEN TESTING LOCALLY
 def get_petitions_data():
     petitions_list = load_csv('dynamic data/dashboard_list.csv')
     petitions_count = load_csv('dynamic data/dashboard_counts.csv')
     return petitions_list, petitions_count
+# END OF SECTION
 
+# DELETE - for local running only
+# script_dir = Path(__file__).parent
+# PETITIONS_LIST_LOCAL = script_dir / 'cached data' / 'dashboard_list.csv'
+# PETITIONS_COUNT_LOCAL = script_dir / 'cached data' / 'dashboard_counts.csv'
+
+# def get_petitions_data():
+#     if PETITIONS_LIST_LOCAL.exists() and PETITIONS_COUNT_LOCAL.exists():
+#         print("Loading petitions data from local cache...")
+#         petitions_list = pd.read_csv(PETITIONS_LIST_LOCAL)
+#         petitions_count = pd.read_csv(PETITIONS_COUNT_LOCAL)
+#         return petitions_list, petitions_count
+#     else:
+#         print("No cached data found - download from S3 first")
+#         return None, None
+# END of deletion section
 
 @lru_cache(maxsize=128)
 def get_petition_data(petition_id):
@@ -81,16 +99,32 @@ def get_petition_data(petition_id):
     return tuple(df.itertuples(index=False))
 
 
+def get_population_data():
+    pop_df = load_csv('static data/pop_estimate_2021.csv')
+    return pop_df
+
+
 # ── Data processing ───────────────────────────────────────
+# COMMENT OUT WHEN RUNNING LOCALLY
 print("Loading GeoJSON...")
 constituencies = get_constituency_geojson()
 
 print("Loading petitions data...")
 petitions_list, petitions_count = get_petitions_data()
 
+print("Loading population data...")
+pop_df = get_population_data()
+
 print("Done loading data.")
 
+
+petitions_count = petitions_count.merge(pop_df[['PCON24CD', 'pop']], on = 'PCON24CD', how = 'left')
+
 petitions_df = petitions_list.merge(petitions_count, on='petition_id', how='left')
+
+petitions_df['sig_per_pop'] = (petitions_df['signature_count'] / petitions_df['pop']) * 1000
+print(petitions_df[petitions_df['PCON24CD'].str.startswith('E')]['sig_per_pop'].describe())
+
 
 petition_quantiles = (
     petitions_df
@@ -250,6 +284,15 @@ app.layout = html.Div([
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm"
                             )
+                        ], md=6),
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("Upcoming Debates", className="mb-1 text-center"),
+                                    html.Div(id='upcoming-debates-table')
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm"
+                            )
                         ], md=6)
                     ])
                 ], style={'padding': '20px'})
@@ -396,8 +439,40 @@ def redirect_on_bar_click(clickData):
     return clickData['points'][0]['customdata'][0]
 
 
+@app.callback(
+    Output('upcoming-debates-table', 'children'),
+    Input('analytics-petition-dropdown', 'value')
+)
+def update_scheduled_debates(PCON24CD):
+    df = petitions_df[
+            (petitions_df['PCON24CD'] == PCON24CD) &
+            (petitions_df['scheduled_debate_date'].notna())
+        ][['petition_title', 'scheduled_debate_date', 'sig_per_pop']].drop_duplicates().sort_values('scheduled_debate_date').head(10).copy()
+    
+    print(f"PCON24CD: {PCON24CD}")
+    print(f"Rows after filter: {len(df)}")
+    print(df[['petition_title', 'scheduled_debate_date']].drop_duplicates())
+
+    df['scheduled_debate_date'] = pd.to_datetime(df['scheduled_debate_date']).dt.strftime('%d %b %Y')
+    df['sig_per_pop'] = df['sig_per_pop'].round(2)
+
+    return dash_table.DataTable(
+        data=df.to_dict('records'),
+        columns=[
+            {'name': 'Petition', 'id': 'petition_title'},
+            {'name': 'Debate Date', 'id': 'scheduled_debate_date'},
+            {'name': 'Sigs per 1,000', 'id': 'sig_per_pop'},
+        ],
+        style_cell={'textAlign': 'left', 'padding': '8px', 'fontSize': '13px',
+                    'fontFamily': 'sans-serif', 'whiteSpace': 'normal', 'height': 'auto'},
+        style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold', 'borderBottom': '2px solid #dee2e6'},
+        style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}]
+    )
+
+
 # ── Map tab ───────────────────────────────────────────────
 
+# COMMNET OUT WHEN TESTING LOCALLY
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
