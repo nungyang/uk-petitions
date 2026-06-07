@@ -16,4 +16,22 @@ Scripts created for future iterations:
 
 
 2. Daily web scraping.py
-This is the script that would be run every day to gather data on the number of petitions at a daily level.
+This scripts run every morning at 6am GDT???
+
+Outputs
+    1. petitions_list_[today date]
+* petition_title: petition title
+* petition_url: petition URL
+* petition_status: closed or open
+* total signature count: total number of signatures (all constituencies combined)
+* petition_id: unique petition id
+* opened_at: should be populated for all petitions
+* debate_threshold_reached_at: date petition reached XX date
+* scheduled_debate_date: date petition debate is scheduled
+* closed_at: populated for all closed petitions
+
+    2. petitions_counts_[today date]
+* petition_id:
+* PCON24CD: unique identifier for each constituency
+* constituency_name:
+* signature_count: 
