@@ -35,3 +35,12 @@ Outputs
 * PCON24CD: unique identifier for each constituency
 * constituency_name:
 * signature_count: 
+
+
+Static data sources:
+Constituency level population estimates:
+    Population estimates - small area (2021 based) by single year of age - England and Wales
+    https://www.nomisweb.co.uk/query/construct/summary.asp?menuopt=200&subcomp=
+
+    
+
