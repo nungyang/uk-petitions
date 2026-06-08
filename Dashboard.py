@@ -58,37 +58,37 @@ def load_geojson(filename):
 # ── Cached data loaders ───────────────────────────────────
 
 #COMMENT OUT WHEN TESTING LOCALLY
-# @lru_cache(maxsize=1)
-# def get_constituency_geojson():
-#     constituencies = load_geojson(
-#         'static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson'
-#     )
-#     constituencies = constituencies[['PCON24CD', 'geometry']]
-#     constituencies['geometry'] = constituencies['geometry'].simplify(0.005)
-#     return constituencies
+@lru_cache(maxsize=1)
+def get_constituency_geojson():
+    constituencies = load_geojson(
+        'static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson'
+    )
+    constituencies = constituencies[['PCON24CD', 'geometry']]
+    constituencies['geometry'] = constituencies['geometry'].simplify(0.005)
+    return constituencies
 
 
 # COMMENT OUT WHEN TESTING LOCALLY
-# def get_petitions_data():
-#     petitions_list = load_csv('dynamic data/dashboard_list.csv')
-#     petitions_count = load_csv('dynamic data/dashboard_counts.csv')
-#     return petitions_list, petitions_count
+def get_petitions_data():
+    petitions_list = load_csv('dynamic data/dashboard_list.csv')
+    petitions_count = load_csv('dynamic data/dashboard_counts.csv')
+    return petitions_list, petitions_count
 # END OF SECTION
 
 # DELETE - for local running only
-script_dir = Path(__file__).parent
-PETITIONS_LIST_LOCAL = script_dir / 'cached data' / 'dashboard_list.csv'
-PETITIONS_COUNT_LOCAL = script_dir / 'cached data' / 'dashboard_counts.csv'
+# script_dir = Path(__file__).parent
+# PETITIONS_LIST_LOCAL = script_dir / 'cached data' / 'dashboard_list.csv'
+# PETITIONS_COUNT_LOCAL = script_dir / 'cached data' / 'dashboard_counts.csv'
 
-def get_petitions_data():
-    if PETITIONS_LIST_LOCAL.exists() and PETITIONS_COUNT_LOCAL.exists():
-        print("Loading petitions data from local cache...")
-        petitions_list = pd.read_csv(PETITIONS_LIST_LOCAL)
-        petitions_count = pd.read_csv(PETITIONS_COUNT_LOCAL)
-        return petitions_list, petitions_count
-    else:
-        print("No cached data found - download from S3 first")
-        return None, None
+# def get_petitions_data():
+#     if PETITIONS_LIST_LOCAL.exists() and PETITIONS_COUNT_LOCAL.exists():
+#         print("Loading petitions data from local cache...")
+#         petitions_list = pd.read_csv(PETITIONS_LIST_LOCAL)
+#         petitions_count = pd.read_csv(PETITIONS_COUNT_LOCAL)
+#         return petitions_list, petitions_count
+#     else:
+#         print("No cached data found - download from S3 first")
+#         return None, None
 # END of deletion section
 
 @lru_cache(maxsize=128)
@@ -106,8 +106,8 @@ def get_population_data():
 
 # ── Data processing ───────────────────────────────────────
 # COMMENT OUT WHEN RUNNING LOCALLY
-# print("Loading GeoJSON...")
-# constituencies = get_constituency_geojson()
+print("Loading GeoJSON...")
+constituencies = get_constituency_geojson()
 # End of section to comment out
 
 print("Loading petitions data...")
@@ -570,86 +570,86 @@ def update_scheduled_debates(PCON24CD):
 # ── Map tab ───────────────────────────────────────────────
 
 # COMMENT OUT WHEN TESTING LOCALLY
-# @app.callback(
-#     Output(mygraph, 'figure'),
-#     Output(mytitle, 'children'),
-#     Output('total-sigs', 'children'),
-#     Output('sch-debate-date', 'children'),
-#     Output('highest-count-con', 'children'),
-#     Input('petition-dropdown', 'value')
-# )
-# def update_graph(petition_id):
-#     callback_start = time.time()
+@app.callback(
+    Output(mygraph, 'figure'),
+    Output(mytitle, 'children'),
+    Output('total-sigs', 'children'),
+    Output('sch-debate-date', 'children'),
+    Output('highest-count-con', 'children'),
+    Input('petition-dropdown', 'value')
+)
+def update_graph(petition_id):
+    callback_start = time.time()
 
-#     cached_data = get_petition_data(petition_id)
+    cached_data = get_petition_data(petition_id)
 
-#     df = pd.DataFrame(cached_data, columns=petitions_df.columns)
-#     print(f"Time to retrieve and process petition data: {time.time() - callback_start:.4f}s")
+    df = pd.DataFrame(cached_data, columns=petitions_df.columns)
+    print(f"Time to retrieve and process petition data: {time.time() - callback_start:.4f}s")
 
-#     petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
-#     total_signatures = df['signature_count'].sum()
+    petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
+    total_signatures = df['signature_count'].sum()
 
-#     sch_debate_date = df['scheduled_debate_date'].iloc[0] if 'scheduled_debate_date' in df.columns else None
-#     debate_date_str = str(sch_debate_date) if pd.notna(sch_debate_date) else "Not scheduled"
+    sch_debate_date = df['scheduled_debate_date'].iloc[0] if 'scheduled_debate_date' in df.columns else None
+    debate_date_str = str(sch_debate_date) if pd.notna(sch_debate_date) else "Not scheduled"
 
-#     max_row = df.loc[df['signature_count'].idxmax()]
-#     highest_count_con = max_row['constituency_name']
-#     highest_count = max_row['signature_count']
+    max_row = df.loc[df['signature_count'].idxmax()]
+    highest_count_con = max_row['constituency_name']
+    highest_count = max_row['signature_count']
 
-#     max_color = petition_quantiles.get(petition_id, df['signature_count'].max())
+    max_color = petition_quantiles.get(petition_id, df['signature_count'].max())
 
-#     plot_start = time.time()
-#     fig = px.choropleth(
-#         df,
-#         locations='PCON24CD',
-#         geojson=constituencies,
-#         featureidkey="properties.PCON24CD",
-#         color='signature_count',
-#         color_continuous_scale="Viridis",
-#         range_color=[0, max_color],
-#         labels={
-#             'signature_count': 'Number of signatures',
-#             'PCON24CD': 'Constituency Code',
-#             'constituency_name': 'Constituency'
-#         },
-#         hover_data={
-#             'PCON24CD': False,
-#             'constituency_name': True,
-#             'signature_count': True
-#         }
-#     )
+    plot_start = time.time()
+    fig = px.choropleth(
+        df,
+        locations='PCON24CD',
+        geojson=constituencies,
+        featureidkey="properties.PCON24CD",
+        color='signature_count',
+        color_continuous_scale="Viridis",
+        range_color=[0, max_color],
+        labels={
+            'signature_count': 'Number of signatures',
+            'PCON24CD': 'Constituency Code',
+            'constituency_name': 'Constituency'
+        },
+        hover_data={
+            'PCON24CD': False,
+            'constituency_name': True,
+            'signature_count': True
+        }
+    )
 
-#     fig.update_geos(
-#         visible=False,
-#         projection_scale=0.8,
-#         center=dict(lat=54.5, lon=-3),
-#         lataxis_range=[48, 60],
-#         lonaxis_range=[-10, 4]
-#     )
+    fig.update_geos(
+        visible=False,
+        projection_scale=0.8,
+        center=dict(lat=54.5, lon=-3),
+        lataxis_range=[48, 60],
+        lonaxis_range=[-10, 4]
+    )
 
-#     fig.update_layout(
-#         margin={"r": 0, "t": 0, "l": 0, "b": 0},
-#         uirevision='constant',
-#         coloraxis_colorbar=dict(
-#             title="Signatures",
-#             thickness=15,
-#             len=0.7,
-#             x=1.0,
-#             xanchor="left",
-#             y=0.5,
-#             yanchor="middle"
-#         )
-#     )
+    fig.update_layout(
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        uirevision='constant',
+        coloraxis_colorbar=dict(
+            title="Signatures",
+            thickness=15,
+            len=0.7,
+            x=1.0,
+            xanchor="left",
+            y=0.5,
+            yanchor="middle"
+        )
+    )
 
-#     print(f"Time to plot the choropleth: {time.time() - plot_start:.4f}s")
+    print(f"Time to plot the choropleth: {time.time() - plot_start:.4f}s")
 
-#     return (
-#         fig,
-#         '# ' + petition_title,
-#         f"{total_signatures:,}",
-#         debate_date_str,
-#         f"{highest_count_con} ({highest_count:,})"
-#     )
+    return (
+        fig,
+        '# ' + petition_title,
+        f"{total_signatures:,}",
+        debate_date_str,
+        f"{highest_count_con} ({highest_count:,})"
+    )
 
 
 if __name__ == '__main__':
