@@ -27,7 +27,7 @@ script_dir = Path(__file__).parent
 env_path = script_dir / '.env'
 load_dotenv(dotenv_path=env_path)
 
-ENV = os.getenv('ENV', 'production')  # set ENV=local in your .env to run locally
+ENV = os.getenv('ENV', 'production')
 
 aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
 aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
@@ -77,14 +77,22 @@ def get_constituency_geojson():
 
 def get_petitions_data():
     if ENV == 'local':
-        list_path  = script_dir / 'cached data' / 'dashboard_list.csv'
-        count_path = script_dir / 'cached data' / 'dashboard_counts.csv'
+        list_path  = script_dir / 'cached data' / 'petitions_list.csv'
+        count_path = script_dir / 'cached data' / 'petitions_counts.csv'
         print("Loading petitions data from local cache...")
         petitions_list  = pd.read_csv(list_path)
         petitions_count = pd.read_csv(count_path)
     else:
-        petitions_list  = load_csv('dynamic data/dashboard_list.csv')
-        petitions_count = load_csv('dynamic data/dashboard_counts.csv')
+        for delta in [0, 1]:
+            date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
+            try:
+                petitions_list  = load_csv(f'dynamic_data/petitions_list_{date_str}.csv')
+                petitions_count = load_csv(f'dynamic_data/petitions_counts_{date_str}.csv')
+                print(f"Loaded data for {date_str}")
+                return petitions_list, petitions_count
+            except s3_client.exceptions.NoSuchKey:
+                print(f"No data found for {date_str}, trying previous day...")
+        raise FileNotFoundError("No petitions data found for today or yesterday")
     return petitions_list, petitions_count
 
 
