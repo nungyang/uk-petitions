@@ -209,8 +209,8 @@ async def main():
 
     today_str = today.strftime('%Y%m%d')
 
-    upload_to_s3(open_petitions, f'petitions_list_{today_str}.csv', s3_client, bucket)
-    upload_to_s3(open_petition_counts_df, f'petitions_counts_{today_str}.csv', s3_client, bucket)
+    upload_to_s3(open_petitions, f'dynamic_data/petitions_list_{today_str}.csv', s3_client, bucket)
+    upload_to_s3(open_petition_counts_df, f'dynamic_data/petitions_counts_{today_str}.csv', s3_client, bucket)
 
     print("Upload complete!")
     print("\nData collection finished successfully!")
