@@ -27,18 +27,21 @@ script_dir = Path(__file__).parent
 env_path = script_dir / '.env'
 load_dotenv(dotenv_path=env_path)
 
+ENV = os.getenv('ENV', 'production')  # set ENV=local in your .env to run locally
+
 aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
 aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 aws_region = os.getenv('AWS_DEFAULT_REGION')
 
 bucket = 'uk-petitions-dashboard'
 
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=aws_access_key,
-    aws_secret_access_key=aws_secret_key,
-    region_name=aws_region
-)
+if ENV != 'local':
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        region_name=aws_region
+    )
 
 
 # ── S3 loading functions ──────────────────────────────────
@@ -57,39 +60,41 @@ def load_geojson(filename):
 
 # ── Cached data loaders ───────────────────────────────────
 
-#COMMENT OUT WHEN TESTING LOCALLY
 @lru_cache(maxsize=1)
 def get_constituency_geojson():
-    constituencies = load_geojson(
-        'static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson'
-    )
+    if ENV == 'local':
+        local_path = script_dir / 'cached data' / 'constituencies_july_2024.geojson'
+        print(f"Loading GeoJSON from local cache: {local_path}")
+        constituencies = gpd.read_file(local_path)
+    else:
+        constituencies = load_geojson(
+            'static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson'
+        )
     constituencies = constituencies[['PCON24CD', 'geometry']]
     constituencies['geometry'] = constituencies['geometry'].simplify(0.005)
     return constituencies
 
 
-# COMMENT OUT WHEN TESTING LOCALLY
 def get_petitions_data():
-    petitions_list = load_csv('dynamic data/dashboard_list.csv')
-    petitions_count = load_csv('dynamic data/dashboard_counts.csv')
+    if ENV == 'local':
+        list_path  = script_dir / 'cached data' / 'dashboard_list.csv'
+        count_path = script_dir / 'cached data' / 'dashboard_counts.csv'
+        print("Loading petitions data from local cache...")
+        petitions_list  = pd.read_csv(list_path)
+        petitions_count = pd.read_csv(count_path)
+    else:
+        petitions_list  = load_csv('dynamic data/dashboard_list.csv')
+        petitions_count = load_csv('dynamic data/dashboard_counts.csv')
     return petitions_list, petitions_count
-# END OF SECTION
 
-# DELETE - for local running only
-# script_dir = Path(__file__).parent
-# PETITIONS_LIST_LOCAL = script_dir / 'cached data' / 'dashboard_list.csv'
-# PETITIONS_COUNT_LOCAL = script_dir / 'cached data' / 'dashboard_counts.csv'
 
-# def get_petitions_data():
-#     if PETITIONS_LIST_LOCAL.exists() and PETITIONS_COUNT_LOCAL.exists():
-#         print("Loading petitions data from local cache...")
-#         petitions_list = pd.read_csv(PETITIONS_LIST_LOCAL)
-#         petitions_count = pd.read_csv(PETITIONS_COUNT_LOCAL)
-#         return petitions_list, petitions_count
-#     else:
-#         print("No cached data found - download from S3 first")
-#         return None, None
-# END of deletion section
+def get_population_data():
+    if ENV == 'local':
+        local_path = script_dir / 'cached data' / 'pop_estimate_2021.csv'
+        print("Loading population data from local cache...")
+        return pd.read_csv(local_path)
+    return load_csv('static data/pop_estimate_2021.csv')
+
 
 @lru_cache(maxsize=128)
 def get_petition_data(petition_id):
@@ -99,16 +104,12 @@ def get_petition_data(petition_id):
     return tuple(df.itertuples(index=False))
 
 
-def get_population_data():
-    pop_df = load_csv('static data/pop_estimate_2021.csv')
-    return pop_df
-
-
 # ── Data processing ───────────────────────────────────────
-# COMMENT OUT WHEN RUNNING LOCALLY
+
+print(f"Environment: {ENV}")
+
 print("Loading GeoJSON...")
 constituencies = get_constituency_geojson()
-# End of section to comment out
 
 print("Loading petitions data...")
 petitions_list, petitions_count = get_petitions_data()
@@ -175,7 +176,7 @@ def wrap_text(text, width=50):
 
 # ── Initialise app ────────────────────────────────────────
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE])
+app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE], suppress_callback_exceptions=True)
 server = app.server
 
 app.index_string = '''
@@ -287,7 +288,7 @@ app.layout = html.Div([
                         ])
                     ], className="mb-4"),
 
-dbc.Row([
+                    dbc.Row([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
@@ -569,7 +570,6 @@ def update_scheduled_debates(PCON24CD):
 
 # ── Map tab ───────────────────────────────────────────────
 
-# COMMENT OUT WHEN TESTING LOCALLY
 @app.callback(
     Output(mygraph, 'figure'),
     Output(mytitle, 'children'),
@@ -653,4 +653,4 @@ def update_graph(petition_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=False, port=8051)
+    app.run(debug=(ENV == 'local'), port=8051)
