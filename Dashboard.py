@@ -68,7 +68,7 @@ def get_constituency_geojson():
         constituencies = gpd.read_file(local_path)
     else:
         constituencies = load_geojson(
-            'static data/Westminster_Parliamentary_Constituencies_July_2024_Boundaries_UK_BGC_-8097874740651686118.geojson'
+            'static data/constituencies_july_2024.geojson'
         )
     constituencies = constituencies[['PCON24CD', 'geometry']]
     constituencies['geometry'] = constituencies['geometry'].simplify(0.005)
