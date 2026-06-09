@@ -193,30 +193,6 @@ async def main():
     print(f"   Total petitions: {len(open_petitions)}")
     print(f"   Total constituency records: {len(open_petition_counts_df)}")
 
-    # Finding petitions that closed since yesterday
-    yday_str = (today - timedelta(days=1)).strftime('%Y%m%d')
-    try:
-        yday_obj = s3_client.get_object(Bucket=bucket, Key=f'dynamic_data/petitions_list_{yday_str}.csv')
-        yday_petitions = pd.read_csv(yday_obj['Body'])
-        
-        closed_petitions_list = yday_petitions[
-            ~yday_petitions['petition_url'].isin(open_petitions['petition_url'])
-        ]
-        
-        print(f"\n5. Petitions closed since yesterday: {len(closed_petitions_list)}")
-        print(closed_petitions_list['petition_url'].tolist())
-        
-    except s3_client.exceptions.NoSuchKey:
-        print(f"\n5. No yesterday file found ({yday_str}), skipping closed petition check.")
-
-    # Fetching constituency data for closed petitions
-    if len(closed_petitions_list) > 0:
-            print("   Fetching constituency data for closed petitions...")
-            closed_petition_counts = await run(closed_petitions_list)
-            print(f"   Total closed constituency records: {len(closed_petition_counts)}")
-    else:
-        closed_petition_counts = pd.DataFrame()
-
     # Exporting to Amazon S3
     print("\n4. Uploading to S3...")
     aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
@@ -235,10 +211,6 @@ async def main():
 
     upload_to_s3(open_petitions, f'dynamic_data/petitions_list_{today_str}.csv', s3_client, bucket)
     upload_to_s3(open_petition_counts_df, f'dynamic_data/petitions_counts_{today_str}.csv', s3_client, bucket)
-
-    if len(closed_petition_counts) > 0:
-        upload_to_s3(closed_petition_counts, f'dynamic_data/closed_petitions_counts_{today_str}.csv', s3_client, bucket)
-        print(f"   Uploaded closed petition counts.")
 
     print("Upload complete!")
     print("\nData collection finished successfully!")
