@@ -3,6 +3,7 @@
 The [UK Government and Parliament Petitions website](https://petition.parliament.uk/) hosts numerous petitions, each calling for a change in UK Government policy or legislation. Unlike other petition websites, any petition that has over 10,000 signatures receives a written response from the government, while those that have over 100,000 signatures are considered for debate in Parliament.
 
 Data on the number of signatures for each petition is publicly available at the constituency level, but it is difficult to get an overview of petiton data relating to a specific constituency. This information would help MPs better understand and represent the views of their constituents. The purpose of this project is to make this information more easily accessible to MPs and their staff.
+
 &nbsp;
 
 ## Key files
@@ -10,13 +11,15 @@ Data on the number of signatures for each petition is publicly available at the 
     This script scrapes the UK Parliament petitions website for data on all open petitions (see below for more detail). It runs every day at 6:00am UTC [Note: this is 7:00am in the UK during BST and 6:00am outside BST]. Data pulls from each day are stored in an Amazon S3 bucket.
 * **dashboard.py**:
     This script uses the above-mentioned data as well as other sources to produce a dashboard, providing a constituency-level overview of open petitions.
+
 &nbsp;
 
 
 ## Daily web scraping outputs
 Below I set out all the variables that are scraped as part of the daily web scraping script.
 
-The data is organised into two separate datasets: petitions_list_{date_of_datapull} and petitions_counts_{date_of_datapull}. For example, data pulled on 1 June 2026 will be saved into one file called petitions_list_20260601.csv and another called petitions_counts_20260601.csv
+The data is organised into two separate datasets: petitions_list_{date_of_datapull} and petitions_counts_{date_of_datapull}. For example, data pulled on 1 June 2026 will be saved into one file called petitions_list_20260601.csv and another called petitions_counts_20260601.csv.
+
 &nbsp;
 
 
