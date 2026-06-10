@@ -32,6 +32,7 @@ The data is organised into two separate datasets: petitions_list_{date_of_datapu
 | `debate_threshold_reached_at` | Date the petition reached 100,000 signatures in total | Date | NA if petition has fewer than 100,000 signatures. |
 | `scheduled_debate_date` | Date petition debate is scheduled to take place | Date | NA if petition has fewer than 100,000 signatures or has not yet had a date set for debate |
 | `deadline` | Date petition is scheduled to close | Date | This should be 6 months after opened_at date. |
+
 &nbsp;
 
 
@@ -42,6 +43,7 @@ The data is organised into two separate datasets: petitions_list_{date_of_datapu
 | `PCON24CD` | Unique identifier for each constituency | E or W or S or N followed by 8 digits | |
 | `constituency_name` | Constituency name | Free text | |
 | `signature_count` | Number of signatures in each constituency | Integer | Lowest possible value is 1. If true count is 0, there will be no row for it. |
+
 &nbsp;
 
 
