@@ -6,7 +6,6 @@ Web scraping from UK petitions website
 """
 
 # Importing libraries
-from bs4 import BeautifulSoup
 import boto3
 import pandas as pd
 import requests
@@ -16,7 +15,6 @@ import os
 import time
 import aiohttp
 import asyncio
-import re
 from io import StringIO
 from dotenv import load_dotenv
 import ssl
@@ -59,44 +57,20 @@ async def fetch_json(session, url, max_retries=5):
     return None
 
 
-async def fetch_html(session, url, max_retries=5):
-    for attempt in range(max_retries):
-        async with SEMAPHORE:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 429:
-                    wait = 2 ** attempt
-                    print(f"Rate limited on {url}, retrying in {wait}s...")
-                    await asyncio.sleep(wait)
-                    continue
-                elif response.status == 200:
-                    await asyncio.sleep(0.3)
-                    return await response.text()
-                else:
-                    print(f"Failed {url}: status {response.status}")
-                    return None
-    print(f"Giving up on {url} after {max_retries} attempts")
-    return None
-
-
 async def fetch_dates_for_open_petitions(urls):
-    async def open_and_deadline_dates(session, URL):
+    async def fetch_petition_dates(session, URL):
         opened = None
         deadline = None
         debate_threshold_reached_date = None
         scheduled_debate_date = None
-
-        content = await fetch_html(session, URL)
-        if content:
-            soup = BeautifulSoup(content, 'html.parser')
-            match = re.search(r'Closes on\s+(\d{1,2} \w+ \d{4})', soup.get_text())
-            if match:
-                deadline = datetime.strptime(match.group(1), '%d %B %Y').date()
 
         data = await fetch_json(session, URL)
         if data:
             attrs = data['data']['attributes']
             if attrs.get('opened_at'):
                 opened = datetime.strptime(attrs['opened_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
+            if attrs.get('closing_date'):
+                deadline = datetime.strptime(attrs['closing_date'], '%Y-%m-%d').date()
             if attrs.get('debate_threshold_reached_at'):
                 debate_threshold_reached_date = datetime.strptime(attrs['debate_threshold_reached_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
             if attrs.get('scheduled_debate_date'):
@@ -105,7 +79,7 @@ async def fetch_dates_for_open_petitions(urls):
         return opened, deadline, debate_threshold_reached_date, scheduled_debate_date
 
     async with aiohttp.ClientSession() as session:
-        tasks = [open_and_deadline_dates(session, url) for url in urls]
+        tasks = [fetch_petition_dates(session, url) for url in urls]
         return await asyncio.gather(*tasks)
 
 
