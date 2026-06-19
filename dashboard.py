@@ -77,11 +77,17 @@ def get_constituency_geojson():
 
 def get_petitions_data():
     if ENV == 'local':
-        list_path  = script_dir / 'cached data' / 'petitions_list.csv'
-        count_path = script_dir / 'cached data' / 'petitions_counts.csv'
-        print("Loading petitions data from local cache...")
-        petitions_list  = pd.read_csv(list_path)
-        petitions_count = pd.read_csv(count_path)
+        for delta in [0, 1]:
+            date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
+            list_path  = script_dir / 'cached data' / f'petitions_list_{date_str}.csv'
+            count_path = script_dir / 'cached data' / f'petitions_counts_{date_str}.csv'
+            if list_path.exists() and count_path.exists():
+                print(f"Loading petitions data from local cache for {date_str}...")
+                petitions_list  = pd.read_csv(list_path)
+                petitions_count = pd.read_csv(count_path)
+                return petitions_list, petitions_count
+            print(f"No local cache found for {date_str}, trying previous day...")
+        raise FileNotFoundError("No petitions data found in local cache for today or yesterday")
     else:
         for delta in [0, 1]:
             date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
@@ -93,7 +99,6 @@ def get_petitions_data():
             except s3_client.exceptions.NoSuchKey:
                 print(f"No data found for {date_str}, trying previous day...")
         raise FileNotFoundError("No petitions data found for today or yesterday")
-    return petitions_list, petitions_count
 
 
 def get_population_data():
@@ -303,31 +308,19 @@ app.layout = html.Div([
                                     html.H5("Top 5 by raw count", className="mb-1 text-center"),
                                     html.Div(id='top-5-table-raw-count')
                                 ], className="pt-2 pb-2"),
-                                className="shadow-sm"
+                                className="shadow-sm h-100"
                             )
                         ], md=6),
-                        dbc.Col([
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.H5("Top 5 by signatures per 1,000", className="mb-1 text-center"),
-                                    html.Div(id='top-5-spp-chart')
-                                ], className="pt-2 pb-2"),
-                                className="shadow-sm"
-                            )
-                        ], md=6)
-                    ]),
-
-                    dbc.Row([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H5("Upcoming Debates", className="mb-1 text-center"),
                                     html.Div(id='upcoming-debates-table')
                                 ], className="pt-2 pb-2"),
-                                className="shadow-sm"
+                                className="shadow-sm h-100"
                             )
-                        ])
-                    ], className="mt-4")
+                        ], md=6)
+                    ])
                 ], style={'padding': '20px'})
             ]),
 
@@ -458,84 +451,11 @@ def update_top5_raw(PCON24CD):
 
 
 @app.callback(
-    Output('top-5-spp-chart', 'children'),
-    Input('analytics-petition-dropdown', 'value')
-)
-def update_top5_spp(PCON24CD):
-    open_df = petitions_df[
-        (petitions_df['PCON24CD'] == PCON24CD) &
-        (petitions_df['status'] == 'open')
-    ].copy()
-
-    top_5 = open_df.nlargest(5, 'sig_per_pop')[
-        ['petition_title', 'sig_per_pop', 'petition_url']
-    ].reset_index(drop=True)
-
-    top_5['sig_per_pop'] = top_5['sig_per_pop'].round(2)
-    top_5['petition_title_wrapped'] = top_5['petition_title'].apply(wrap_text)
-
-    max_val = top_5['sig_per_pop'].max()
-    padding = max_val * 0.15
-
-    fig = px.bar(
-        top_5,
-        x='sig_per_pop',
-        y='petition_title_wrapped',
-        orientation='h',
-        custom_data=['petition_url'],
-        labels={'sig_per_pop': 'Signatures per 1,000', 'petition_title_wrapped': ''}
-    )
-
-    fig.update_layout(
-        yaxis={'categoryorder': 'total ascending'},
-        height=300,
-        margin=dict(l=150, r=20, t=10, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        bargap=0.5
-    )
-
-    fig.update_traces(
-        marker_color='#198754',
-        marker_line_color='#146c43',
-        marker_line_width=1.5,
-        opacity=0.8,
-        text=top_5['sig_per_pop'].apply(lambda x: f'{x:.2f}'),
-        textposition='outside',
-        textfont=dict(size=11, color='#333'),
-        hovertemplate=None,
-        hoverinfo='none'
-    )
-
-    fig.update_xaxes(
-        range=[0, max_val + padding],
-        showgrid=True,
-        gridcolor='#e9ecef'
-    )
-
-    fig.update_yaxes(ticklen=40)
-
-    return dcc.Graph(
-        id='top-5-spp-bar-chart',
-        figure=fig,
-        config={'displayModeBar': False},
-        hoverData=None
-    )
-
-
-@app.callback(
     Output('url', 'href'),
     Input('top-5-bar-chart-raw-count', 'clickData'),
-    Input('top-5-spp-bar-chart', 'clickData'),
     prevent_initial_call=True
 )
-def redirect_on_bar_click(click_raw, click_spp):
-    from dash import ctx
-    triggered = ctx.triggered_id
-    if triggered == 'top-5-spp-bar-chart':
-        if not click_spp or 'points' not in click_spp:
-            return no_update
-        return click_spp['points'][0]['customdata'][0]
+def redirect_on_bar_click(click_raw):
     if not click_raw or 'points' not in click_raw:
         return no_update
     return click_raw['points'][0]['customdata'][0]
@@ -550,7 +470,7 @@ def update_scheduled_debates(PCON24CD):
             (petitions_df['PCON24CD'] == PCON24CD) &
             (petitions_df['scheduled_debate_date'].notna())
         ][['petition_title', 'scheduled_debate_date', 'signature_count', 'median_signature_count',
-           'sig_per_pop', 'sig_per_pop_rank']].drop_duplicates().sort_values('scheduled_debate_date').head(10).copy()
+           'sig_per_pop', 'sig_per_pop_rank']].drop_duplicates().sort_values('scheduled_debate_date').head(5).copy()
 
     print(f"PCON24CD: {PCON24CD}")
     print(f"Rows after filter: {len(df)}")
