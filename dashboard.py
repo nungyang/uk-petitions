@@ -63,7 +63,7 @@ def load_geojson(filename):
 @lru_cache(maxsize=1)
 def get_constituency_geojson():
     if ENV == 'local':
-        local_path = script_dir / 'cached data' / 'constituencies_july_2024.geojson'
+        local_path = script_dir / 'cached_data' / 'constituencies_july_2024.geojson'
         print(f"Loading GeoJSON from local cache: {local_path}")
         constituencies = gpd.read_file(local_path)
     else:
@@ -79,8 +79,8 @@ def get_petitions_data():
     if ENV == 'local':
         for delta in [0, 1]:
             date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
-            list_path  = script_dir / 'cached data' / f'petitions_list_{date_str}.csv'
-            count_path = script_dir / 'cached data' / f'petitions_counts_{date_str}.csv'
+            list_path  = script_dir / 'cached_data' / f'petitions_list_{date_str}.csv'
+            count_path = script_dir / 'cached_data' / f'petitions_counts_{date_str}.csv'
             if list_path.exists() and count_path.exists():
                 print(f"Loading petitions data from local cache for {date_str}...")
                 petitions_list  = pd.read_csv(list_path)
@@ -103,7 +103,7 @@ def get_petitions_data():
 
 def get_population_data():
     if ENV == 'local':
-        local_path = script_dir / 'cached data' / 'pop_estimate_2021.csv'
+        local_path = script_dir / 'cached_data' / 'pop_estimate_2021.csv'
         print("Loading population data from local cache...")
         return pd.read_csv(local_path)
     return load_csv('static data/pop_estimate_2021.csv')
@@ -320,7 +320,21 @@ app.layout = html.Div([
                                 className="shadow-sm h-100"
                             )
                         ], md=6)
-                    ])
+                    ]),
+
+                    # ── All Petitions table ───────────────────────────
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("All Petitions", className="mb-3 text-center"),
+                                    html.Div(id='all-petitions-table')
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm"
+                            )
+                        ])
+                    ], className="mt-4")
+
                 ], style={'padding': '20px'})
             ]),
 
@@ -493,6 +507,90 @@ def update_scheduled_debates(PCON24CD):
                     'fontFamily': 'sans-serif', 'whiteSpace': 'normal', 'height': 'auto'},
         style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold', 'borderBottom': '2px solid #dee2e6'},
         style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}]
+    )
+
+
+# ── All Petitions table ───────────────────────────────────
+
+@app.callback(
+    Output('all-petitions-table', 'children'),
+    Input('analytics-petition-dropdown', 'value')
+)
+def update_all_petitions_table(PCON24CD):
+    today = datetime.now().date()
+
+    # One row per petition — petition-level columns only
+    petition_level = petitions_list[[
+        'petition_id', 'petition_title', 'petition_url',
+        'opened_at', 'total_signature_count', 'scheduled_debate_date'
+    ]].drop_duplicates(subset='petition_id').copy()
+
+    # Constituency-level signature count for the selected constituency
+    constituency_sigs = petitions_df[petitions_df['PCON24CD'] == PCON24CD][[
+        'petition_id', 'signature_count'
+    ]].drop_duplicates(subset='petition_id')
+
+    df = petition_level.merge(constituency_sigs, on='petition_id', how='left')
+
+    # Days open
+    df['opened_at'] = pd.to_datetime(df['opened_at']).dt.date
+    df['days_open'] = df['opened_at'].apply(lambda d: (today - d).days)
+
+    # Debate date formatting
+    df['scheduled_debate_date'] = pd.to_datetime(
+        df['scheduled_debate_date'], errors='coerce'
+    ).dt.strftime('%d %b %Y').fillna('N/A')
+
+    # Clickable title as markdown
+    df['petition_title_link'] = df.apply(
+        lambda r: f"[{r['petition_title']}]({r['petition_url']})", axis=1
+    )
+
+    df['signature_count'] = df['signature_count'].fillna(0).astype(int)
+
+    table_df = df[[
+        'petition_title_link', 'days_open', 'total_signature_count',
+        'signature_count', 'scheduled_debate_date'
+    ]].sort_values('total_signature_count', ascending=False)
+
+    return dash_table.DataTable(
+        data=table_df.to_dict('records'),
+        columns=[
+            {'name': 'Petition', 'id': 'petition_title_link', 'presentation': 'markdown'},
+            {'name': 'Days Open', 'id': 'days_open', 'type': 'numeric'},
+            {'name': 'Total Signatures', 'id': 'total_signature_count', 'type': 'numeric'},
+            {'name': 'Constituency Signatures', 'id': 'signature_count', 'type': 'numeric'},
+            {'name': 'Scheduled Debate', 'id': 'scheduled_debate_date'},
+        ],
+        sort_action='native',
+        sort_mode='single',
+        page_action='native',
+        page_size=20,
+        style_cell={
+            'textAlign': 'left',
+            'padding': '8px',
+            'fontSize': '13px',
+            'fontFamily': 'sans-serif',
+            'whiteSpace': 'normal',
+            'height': 'auto',
+            'minWidth': '80px'
+        },
+        style_cell_conditional=[
+            {'if': {'column_id': 'petition_title_link'}, 'minWidth': '300px', 'maxWidth': '500px'},
+            {'if': {'column_id': 'days_open'}, 'textAlign': 'center'},
+            {'if': {'column_id': 'total_signature_count'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'signature_count'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'scheduled_debate_date'}, 'textAlign': 'center'},
+        ],
+        style_header={
+            'backgroundColor': '#f8f9fa',
+            'fontWeight': 'bold',
+            'borderBottom': '2px solid #dee2e6'
+        },
+        style_data_conditional=[
+            {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}
+        ],
+        style_table={'overflowX': 'auto'}
     )
 
 
