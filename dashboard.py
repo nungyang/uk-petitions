@@ -135,21 +135,24 @@ print("Done loading data.")
 # Adding data on population
 petitions_count = petitions_count.merge(pop_df[['PCON24CD', 'pop']], on='PCON24CD', how='left')
 
+# Adding column on sig per pop
+petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions_count['pop']) * 1000
+
+# Adding rank
+petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
+petitions_count['percentile_rank'] = petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100
+
 # Working out median count for each petition
 median_counts = petitions_count.groupby('petition_id')['signature_count'].median().reset_index()
 median_counts.columns = ['petition_id', 'median_signature_count']
 
-# Adding median counts to petitions counts
-petitions_count = petitions_count.merge(median_counts, on='petition_id', how='left')
+# Adding median counts to petitions list
+petitions_list = petitions_list.merge(median_counts, on='petition_id', how='left')
 
-# Merging petitions list to petitions count
+# Merging petitions count to petitions list
 petitions_df = petitions_list.merge(petitions_count, on='petition_id', how='left')
 
-# Adding column on sig per pop
-petitions_df['sig_per_pop'] = (petitions_df['signature_count'] / petitions_df['pop']) * 1000
-
-# Adding rank
-petitions_df['sig_per_pop_rank'] = petitions_df.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
+print(petitions_df.columns.tolist())
 
 petition_quantiles = (
     petitions_df
@@ -211,6 +214,29 @@ app.index_string = '''
             }
             .tabs {
                 border-bottom: 1px solid #dee2e6 !important;
+            }
+
+            /* Consistent sort arrow alignment across all columns */
+            .dash-header .column-header--sort {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                gap: 4px !important;
+                padding-right: 10px !important;
+            }
+            .dash-header .column-header-name {
+                flex: 1 !important;
+                text-align: left !important;
+            }
+            .dash-header .sort-arrow {
+                flex-shrink: 0 !important;
+            }
+
+            .dash-spreadsheet td .cell-markdown {
+                line-height: 1.2 !important;
+                padding: 0 !important;
+                margin: 0 !important;
             }
         </style>
     </head>
@@ -486,10 +512,6 @@ def update_scheduled_debates(PCON24CD):
         ][['petition_title', 'scheduled_debate_date', 'signature_count', 'median_signature_count',
            'sig_per_pop', 'sig_per_pop_rank']].drop_duplicates().sort_values('scheduled_debate_date').head(5).copy()
 
-    print(f"PCON24CD: {PCON24CD}")
-    print(f"Rows after filter: {len(df)}")
-    print(df[['petition_title', 'scheduled_debate_date']].drop_duplicates())
-
     df['scheduled_debate_date'] = pd.to_datetime(df['scheduled_debate_date']).dt.strftime('%d %b %Y')
     df['sig_per_pop'] = df['sig_per_pop'].round(2)
 
@@ -519,18 +541,16 @@ def update_scheduled_debates(PCON24CD):
 def update_all_petitions_table(PCON24CD):
     today = datetime.now().date()
 
-    # One row per petition — petition-level columns only
-    petition_level = petitions_list[[
-        'petition_id', 'petition_title', 'petition_url',
-        'opened_at', 'total_signature_count', 'scheduled_debate_date'
-    ]].drop_duplicates(subset='petition_id').copy()
-
-    # Constituency-level signature count for the selected constituency
+    # Constituency-level stats for the selected constituency
     constituency_sigs = petitions_df[petitions_df['PCON24CD'] == PCON24CD][[
-        'petition_id', 'signature_count'
-    ]].drop_duplicates(subset='petition_id')
+        'petition_id', 'signature_count', 'percentile_rank',
+        'sig_per_pop', 'sig_per_pop_rank'
+    ]].drop_duplicates(subset='petition_id').copy()
+    constituency_sigs['petition_id'] = constituency_sigs['petition_id'].astype(str)
 
-    df = petition_level.merge(constituency_sigs, on='petition_id', how='left')
+    df = petitions_list.copy()
+    df['petition_id'] = df['petition_id'].astype(str)
+    df = df.merge(constituency_sigs, on='petition_id', how='left')
 
     # Days open
     df['opened_at'] = pd.to_datetime(df['opened_at']).dt.date
@@ -547,50 +567,83 @@ def update_all_petitions_table(PCON24CD):
     )
 
     df['signature_count'] = df['signature_count'].fillna(0).astype(int)
+    df['percentile_rank'] = df['percentile_rank'].round(1)
+    df['median_signature_count'] = df['median_signature_count'].fillna(0).astype(int)
+    df['sig_per_pop'] = df['sig_per_pop'].round(2)
+    df['sig_per_pop_rank'] = df['sig_per_pop_rank'].fillna(0).astype(int)
+
+    # Pre-format numeric columns with thousands separators as strings
+    # so they display with commas but sorting uses the raw numeric columns
+    df['total_signature_count_fmt'] = df['total_signature_count'].apply(lambda x: f'{int(x):,}')
+    df['median_signature_count_fmt'] = df['median_signature_count'].apply(lambda x: f'{x:,}')
+    df['signature_count_fmt'] = df['signature_count'].apply(lambda x: f'{x:,}')
 
     table_df = df[[
-        'petition_title_link', 'days_open', 'total_signature_count',
-        'signature_count', 'scheduled_debate_date'
+        'petition_title_link', 'days_open',
+        'total_signature_count', 'total_signature_count_fmt',
+        'median_signature_count', 'median_signature_count_fmt',
+        'signature_count', 'signature_count_fmt',
+        'percentile_rank', 'sig_per_pop', 'sig_per_pop_rank',
+        'scheduled_debate_date'
     ]].sort_values('total_signature_count', ascending=False)
 
     return dash_table.DataTable(
         data=table_df.to_dict('records'),
         columns=[
-            {'name': 'Petition', 'id': 'petition_title_link', 'presentation': 'markdown'},
-            {'name': 'Days Open', 'id': 'days_open', 'type': 'numeric'},
-            {'name': 'Total Signatures', 'id': 'total_signature_count', 'type': 'numeric'},
-            {'name': 'Constituency Signatures', 'id': 'signature_count', 'type': 'numeric'},
-            {'name': 'Scheduled Debate', 'id': 'scheduled_debate_date'},
+            {'name': ['', 'Petition'],                                        'id': 'petition_title_link',      'presentation': 'markdown'},
+            {'name': ['', 'Days open'],                                        'id': 'days_open',                'type': 'numeric'},
+            {'name': ['All petitions', 'Total signatures'],                    'id': 'total_signature_count_fmt'},
+            {'name': ['All petitions', 'Median signature count'],              'id': 'median_signature_count_fmt'},
+            {'name': ['Raw counts', 'Constituency signatures'],                'id': 'signature_count_fmt'},
+            {'name': ['Raw counts', 'Percentile ranking'],                     'id': 'percentile_rank',          'type': 'numeric'},
+            {'name': ['Counts per 1,000 population', 'Signatures per 1,000'], 'id': 'sig_per_pop',              'type': 'numeric'},
+            {'name': ['Counts per 1,000 population', 'Ranking (sig per 1,000)'], 'id': 'sig_per_pop_rank',      'type': 'numeric'},
+            {'name': ['', 'Scheduled debate'],                                 'id': 'scheduled_debate_date'},
         ],
+        merge_duplicate_headers=True,
         sort_action='native',
         sort_mode='single',
         page_action='native',
         page_size=20,
         style_cell={
             'textAlign': 'left',
-            'padding': '8px',
+            'padding': '4px 12px',
             'fontSize': '13px',
             'fontFamily': 'sans-serif',
             'whiteSpace': 'normal',
             'height': 'auto',
-            'minWidth': '80px'
+            'overflow': 'hidden',
+            'boxSizing': 'border-box',
+            'verticalAlign': 'top',
         },
         style_cell_conditional=[
-            {'if': {'column_id': 'petition_title_link'}, 'minWidth': '300px', 'maxWidth': '500px'},
-            {'if': {'column_id': 'days_open'}, 'textAlign': 'center'},
-            {'if': {'column_id': 'total_signature_count'}, 'textAlign': 'right'},
-            {'if': {'column_id': 'signature_count'}, 'textAlign': 'right'},
-            {'if': {'column_id': 'scheduled_debate_date'}, 'textAlign': 'center'},
+            # Fixed widths on every column so nothing shifts on sort or content change
+            {'if': {'column_id': 'petition_title_link'},       'width': '300px', 'minWidth': '300px', 'maxWidth': '300px', 'whiteSpace': 'normal'},
+            {'if': {'column_id': 'days_open'},                 'width': '80px',  'minWidth': '80px',  'maxWidth': '80px',  'textAlign': 'right'},
+            {'if': {'column_id': 'total_signature_count_fmt'}, 'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'median_signature_count_fmt'},'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'signature_count_fmt'},       'width': '130px', 'minWidth': '130px', 'maxWidth': '130px', 'textAlign': 'right'},
+            {'if': {'column_id': 'percentile_rank'},           'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
+            {'if': {'column_id': 'sig_per_pop'},               'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'sig_per_pop_rank'},          'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
+            {'if': {'column_id': 'scheduled_debate_date'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'left'},
         ],
         style_header={
             'backgroundColor': '#f8f9fa',
             'fontWeight': 'bold',
-            'borderBottom': '2px solid #dee2e6'
+            'borderBottom': '2px solid #dee2e6',
+            'textAlign': 'left',
+            'padding': '4px 12px',
+            'whiteSpace': 'normal',
+            'height': 'auto',
         },
         style_data_conditional=[
             {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}
         ],
-        style_table={'overflowX': 'auto'}
+        style_table={
+            'overflowX': 'auto',
+            'tableLayout': 'fixed',
+        }
     )
 
 
@@ -668,6 +721,8 @@ def update_graph(petition_id):
     )
 
     print(f"Time to plot the choropleth: {time.time() - plot_start:.4f}s")
+    print(df[['petition_id', 'median_signature_count', 'percentile_rank']].head(5))
+    print("NaN counts:", df[['median_signature_count', 'percentile_rank']].isna().sum())
 
     return (
         fig,
