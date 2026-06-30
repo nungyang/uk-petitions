@@ -141,7 +141,8 @@ petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions
 
 # Adding rank
 petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
-petitions_count['percentile_rank'] = (100 - (petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100)).round(1)
+petitions_count['percentile_rank_raw'] = (100 - (petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100)).round(1)
+petitions_count['percentile_rank_pop'] = (100 - (petitions_count.groupby('petition_id')['sig_per_pop'].rank(pct=True) * 100)).round(1)
 
 # Working out median count for each petition
 median_counts = petitions_count.groupby('petition_id')['signature_count'].median().reset_index()
@@ -277,6 +278,18 @@ mygraph = dcc.Graph(
     style={'height': '85vh'}
 )
 
+days_open_checklist = dcc.Checklist(
+    id='days-open-filter',
+    options=[
+        {'label': 'Less than 1 month', 'value': 'Less than 1 month'},
+        {'label': '1-3 months', 'value': '1-3 months'},
+        {'label': '4-6 months', 'value': '4-6 months'},
+        {'label': '6+ months', 'value': '6+ months'},
+    ],
+    value=['Less than 1 month', '1-3 months', '4-6 months', '6+ months'],
+    inline=True
+)
+
 
 # ── Dropdowns ─────────────────────────────────────────────
 
@@ -354,6 +367,7 @@ app.layout = html.Div([
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H5("All Petitions", className="mb-3 text-center"),
+                                    days_open_checklist,
                                     html.Div(id='all-petitions-table')
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm"
@@ -538,13 +552,15 @@ def update_scheduled_debates(PCON24CD):
 @app.callback(
     Output('all-petitions-table', 'children'),
     Input('analytics-petition-dropdown', 'value'),
+    Input('days-open-filter', 'value'),
 )
-def update_all_petitions_table(PCON24CD):
+def update_all_petitions_table(PCON24CD, days_open_selected):
     today = datetime.now().date()
 
     # Constituency-level stats for the selected constituency
     constituency_sigs = petitions_df[petitions_df['PCON24CD'] == PCON24CD][[
-        'petition_id', 'signature_count', 'percentile_rank',
+        'petition_id', 'signature_count',
+        'percentile_rank_raw', 'percentile_rank_pop',
         'sig_per_pop', 'sig_per_pop_rank'
     ]].drop_duplicates(subset='petition_id').copy()
     constituency_sigs['petition_id'] = constituency_sigs['petition_id'].astype(str)
@@ -555,7 +571,9 @@ def update_all_petitions_table(PCON24CD):
 
     # Days open
     df['opened_at'] = pd.to_datetime(df['opened_at']).dt.date
-    df['days_open'] = df['opened_at'].apply(lambda d: (today - d).days)
+    df['days_open_interval'] = df['opened_at'].apply(lambda d: (today - d).days).apply(
+        lambda n: 'Less than 1 month' if n < 30 else '1-3 months' if n < 90 else '4-6 months' if n < 180 else '6+ months'
+    )
 
     # Debate date formatting
     df['scheduled_debate_date'] = pd.to_datetime(df['scheduled_debate_date'], errors='coerce').dt.date
@@ -566,21 +584,24 @@ def update_all_petitions_table(PCON24CD):
     )
 
     df['signature_count'] = df['signature_count'].fillna(0).astype(int)
-    df['percentile_rank'] = df['percentile_rank'].round(1)
-    df['median_signature_count'] = df['median_signature_count'].fillna(0).astype(int)
+    df['percentile_rank_raw'] = df['percentile_rank_raw'].round(1)
+    df['percentile_rank_pop'] = df['percentile_rank_pop'].round(1)
     df['sig_per_pop'] = df['sig_per_pop'].round(2)
     df['sig_per_pop_rank'] = df['sig_per_pop_rank'].fillna(0).astype(int)
 
     table_df = df[[
-        'petition_title_link', 'days_open',
+        'petition_title_link', 'opened_at',
+        'days_open_interval',
         'total_signature_count',
-        'median_signature_count',
         'signature_count',
-        'percentile_rank',
+        'percentile_rank_raw',
+        'percentile_rank_pop',
         'sig_per_pop',
         'sig_per_pop_rank',
         'scheduled_debate_date'
     ]].sort_values('total_signature_count', ascending=False)
+
+    table_df = table_df[table_df['days_open_interval'].isin(days_open_selected)]
 
     return dash_table.DataTable(
         id='all-petitions-datatable',
@@ -588,13 +609,13 @@ def update_all_petitions_table(PCON24CD):
         data=table_df.to_dict('records'),
         columns=[
             {'name': ['', 'Petition'], 'id': 'petition_title_link', 'presentation': 'markdown'},
-            {'name': ['', 'Days open'], 'id': 'days_open', 'type': 'numeric'},
+            {'name': ['', 'Date opened'], 'id': 'opened_at', 'type': 'datetime'},
+            {'name': ['', 'Days open'], 'id': 'days_open_interval'},
             {'name': ['All petitions', 'Total signatures'], 'id': 'total_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
             {'name': ['Raw counts', 'Constituency signatures'], 'id': 'signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
-            {'name': ['Raw counts', 'Median signature count'], 'id': 'median_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
-            {'name': ['Raw counts', 'Percentile ranking'], 'id': 'percentile_rank', 'type': 'numeric'},
+            {'name': ['Raw counts', 'Percentile ranking (counts)'], 'id': 'percentile_rank_raw', 'type': 'numeric'},
             {'name': ['Counts per 1,000 population', 'Signatures per 1,000'], 'id': 'sig_per_pop', 'type': 'numeric'},
-            {'name': ['Counts per 1,000 population', 'Ranking (sig per 1,000)'], 'id': 'sig_per_pop_rank', 'type': 'numeric'},
+            {'name': ['Counts per 1,000 population', 'Percentile ranking (sig per 1000)'], 'id': 'percentile_rank_pop', 'type': 'numeric'},
             {'name': ['', 'Scheduled debate'], 'id': 'scheduled_debate_date', 'type': 'datetime'},
         ],
         merge_duplicate_headers=True,
@@ -616,13 +637,13 @@ def update_all_petitions_table(PCON24CD):
         style_cell_conditional=[
             # Fixed widths on every column so nothing shifts on sort or content change
             {'if': {'column_id': 'petition_title_link'},       'width': '300px', 'minWidth': '300px', 'maxWidth': '300px', 'whiteSpace': 'normal'},
-            {'if': {'column_id': 'days_open'},                 'width': '80px',  'minWidth': '80px',  'maxWidth': '80px',  'textAlign': 'right'},
-            {'if': {'column_id': 'total_signature_count'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
-            {'if': {'column_id': 'median_signature_count'},    'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'opened_at'},                 'width': '100px',  'minWidth': '100px',  'maxWidth': '100px',  'textAlign': 'right'},
+            {'if': {'column_id': 'days_open_interval'}, 'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'total_signature_count'},     'width': '100px', 'minWidth': '100px', 'maxWidth': '100px', 'textAlign': 'right'},
             {'if': {'column_id': 'signature_count'},           'width': '130px', 'minWidth': '130px', 'maxWidth': '130px', 'textAlign': 'right'},
-            {'if': {'column_id': 'percentile_rank'},           'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
-            {'if': {'column_id': 'sig_per_pop'},               'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
-            {'if': {'column_id': 'sig_per_pop_rank'},          'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
+            {'if': {'column_id': 'percentile_rank_raw'},           'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
+            {'if': {'column_id': 'sig_per_pop'},               'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
+            {'if': {'column_id': 'percentile_rank_pop'},          'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
             {'if': {'column_id': 'scheduled_debate_date'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
         ],
         style_header={
