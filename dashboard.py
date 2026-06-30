@@ -16,6 +16,7 @@ import pandas as pd
 import geopandas as gpd
 import plotly.express as px
 from dash import Dash, dcc, Output, Input, html, dash_table, no_update
+from dash.dash_table.Format import Format, Group
 import dash_bootstrap_components as dbc
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
@@ -140,7 +141,7 @@ petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions
 
 # Adding rank
 petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
-petitions_count['percentile_rank'] = petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100
+petitions_count['percentile_rank'] = (100 - (petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100)).round(1)
 
 # Working out median count for each petition
 median_counts = petitions_count.groupby('petition_id')['signature_count'].median().reset_index()
@@ -151,8 +152,6 @@ petitions_list = petitions_list.merge(median_counts, on='petition_id', how='left
 
 # Merging petitions count to petitions list
 petitions_df = petitions_list.merge(petitions_count, on='petition_id', how='left')
-
-print(petitions_df.columns.tolist())
 
 petition_quantiles = (
     petitions_df
@@ -220,7 +219,6 @@ app.index_string = '''
             .dash-header .column-header--sort {
                 display: flex !important;
                 flex-direction: row !important;
-                align-items: center !important;
                 justify-content: space-between !important;
                 gap: 4px !important;
                 padding-right: 10px !important;
@@ -232,11 +230,21 @@ app.index_string = '''
             .dash-header .sort-arrow {
                 flex-shrink: 0 !important;
             }
-
             .dash-spreadsheet td .cell-markdown {
                 line-height: 1.2 !important;
                 padding: 0 !important;
                 margin: 0 !important;
+            }
+            .row-highlight td {
+                background-color: #cfe2ff !important;
+            }
+            .dash-spreadsheet td.cell--selected,
+            .dash-spreadsheet td.focused,
+            .dash-spreadsheet td.cell--selected > div,
+            .dash-spreadsheet td.focused > div {
+                outline: none !important;
+                border: none !important;
+                box-shadow: none !important;
             }
         </style>
     </head>
@@ -508,7 +516,8 @@ def redirect_on_bar_click(click_raw):
 def update_scheduled_debates(PCON24CD):
     df = petitions_df[
             (petitions_df['PCON24CD'] == PCON24CD) &
-            (petitions_df['scheduled_debate_date'].notna())
+            (petitions_df['scheduled_debate_date'].notna()) &
+            (pd.to_datetime(petitions_df['scheduled_debate_date']) >= pd.Timestamp.now())
         ][['petition_title', 'scheduled_debate_date', 'signature_count', 'median_signature_count',
            'sig_per_pop', 'sig_per_pop_rank']].drop_duplicates().sort_values('scheduled_debate_date').head(5).copy()
 
@@ -536,8 +545,9 @@ def update_scheduled_debates(PCON24CD):
 
 @app.callback(
     Output('all-petitions-table', 'children'),
-    Input('analytics-petition-dropdown', 'value')
+    Input('analytics-petition-dropdown', 'value'),
 )
+
 def update_all_petitions_table(PCON24CD):
     today = datetime.now().date()
 
@@ -557,9 +567,7 @@ def update_all_petitions_table(PCON24CD):
     df['days_open'] = df['opened_at'].apply(lambda d: (today - d).days)
 
     # Debate date formatting
-    df['scheduled_debate_date'] = pd.to_datetime(
-        df['scheduled_debate_date'], errors='coerce'
-    ).dt.strftime('%d %b %Y').fillna('N/A')
+    df['scheduled_debate_date'] = pd.to_datetime(df['scheduled_debate_date'], errors='coerce').dt.date
 
     # Clickable title as markdown
     df['petition_title_link'] = df.apply(
@@ -572,33 +580,30 @@ def update_all_petitions_table(PCON24CD):
     df['sig_per_pop'] = df['sig_per_pop'].round(2)
     df['sig_per_pop_rank'] = df['sig_per_pop_rank'].fillna(0).astype(int)
 
-    # Pre-format numeric columns with thousands separators as strings
-    # so they display with commas but sorting uses the raw numeric columns
-    df['total_signature_count_fmt'] = df['total_signature_count'].apply(lambda x: f'{int(x):,}')
-    df['median_signature_count_fmt'] = df['median_signature_count'].apply(lambda x: f'{x:,}')
-    df['signature_count_fmt'] = df['signature_count'].apply(lambda x: f'{x:,}')
-
     table_df = df[[
         'petition_title_link', 'days_open',
-        'total_signature_count', 'total_signature_count_fmt',
-        'median_signature_count', 'median_signature_count_fmt',
-        'signature_count', 'signature_count_fmt',
-        'percentile_rank', 'sig_per_pop', 'sig_per_pop_rank',
+        'total_signature_count',
+        'median_signature_count',
+        'signature_count',
+        'percentile_rank',
+        'sig_per_pop',
+        'sig_per_pop_rank',
         'scheduled_debate_date'
     ]].sort_values('total_signature_count', ascending=False)
 
     return dash_table.DataTable(
+        id='all-petitions-datatable',
         data=table_df.to_dict('records'),
         columns=[
-            {'name': ['', 'Petition'],                                        'id': 'petition_title_link',      'presentation': 'markdown'},
-            {'name': ['', 'Days open'],                                        'id': 'days_open',                'type': 'numeric'},
-            {'name': ['All petitions', 'Total signatures'],                    'id': 'total_signature_count_fmt'},
-            {'name': ['All petitions', 'Median signature count'],              'id': 'median_signature_count_fmt'},
-            {'name': ['Raw counts', 'Constituency signatures'],                'id': 'signature_count_fmt'},
-            {'name': ['Raw counts', 'Percentile ranking'],                     'id': 'percentile_rank',          'type': 'numeric'},
-            {'name': ['Counts per 1,000 population', 'Signatures per 1,000'], 'id': 'sig_per_pop',              'type': 'numeric'},
-            {'name': ['Counts per 1,000 population', 'Ranking (sig per 1,000)'], 'id': 'sig_per_pop_rank',      'type': 'numeric'},
-            {'name': ['', 'Scheduled debate'],                                 'id': 'scheduled_debate_date'},
+            {'name': ['', 'Petition'], 'id': 'petition_title_link', 'presentation': 'markdown'},
+            {'name': ['', 'Days open'], 'id': 'days_open', 'type': 'numeric'},
+            {'name': ['All petitions', 'Total signatures'], 'id': 'total_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
+            {'name': ['Raw counts', 'Constituency signatures'], 'id': 'signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
+            {'name': ['Raw counts', 'Median signature count'], 'id': 'median_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
+            {'name': ['Raw counts', 'Percentile ranking'], 'id': 'percentile_rank', 'type': 'numeric'},
+            {'name': ['Counts per 1,000 population', 'Signatures per 1,000'], 'id': 'sig_per_pop', 'type': 'numeric'},
+            {'name': ['Counts per 1,000 population', 'Ranking (sig per 1,000)'], 'id': 'sig_per_pop_rank', 'type': 'numeric'},
+            {'name': ['', 'Scheduled debate'], 'id': 'scheduled_debate_date', 'type': 'datetime'},
         ],
         merge_duplicate_headers=True,
         sort_action='native',
@@ -620,13 +625,13 @@ def update_all_petitions_table(PCON24CD):
             # Fixed widths on every column so nothing shifts on sort or content change
             {'if': {'column_id': 'petition_title_link'},       'width': '300px', 'minWidth': '300px', 'maxWidth': '300px', 'whiteSpace': 'normal'},
             {'if': {'column_id': 'days_open'},                 'width': '80px',  'minWidth': '80px',  'maxWidth': '80px',  'textAlign': 'right'},
-            {'if': {'column_id': 'total_signature_count_fmt'}, 'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
-            {'if': {'column_id': 'median_signature_count_fmt'},'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
-            {'if': {'column_id': 'signature_count_fmt'},       'width': '130px', 'minWidth': '130px', 'maxWidth': '130px', 'textAlign': 'right'},
+            {'if': {'column_id': 'total_signature_count'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'median_signature_count'},    'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
+            {'if': {'column_id': 'signature_count'},           'width': '130px', 'minWidth': '130px', 'maxWidth': '130px', 'textAlign': 'right'},
             {'if': {'column_id': 'percentile_rank'},           'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
             {'if': {'column_id': 'sig_per_pop'},               'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
             {'if': {'column_id': 'sig_per_pop_rank'},          'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
-            {'if': {'column_id': 'scheduled_debate_date'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'left'},
+            {'if': {'column_id': 'scheduled_debate_date'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
         ],
         style_header={
             'backgroundColor': '#f8f9fa',
@@ -637,15 +642,30 @@ def update_all_petitions_table(PCON24CD):
             'whiteSpace': 'normal',
             'height': 'auto',
         },
-        style_data_conditional=[
-            {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}
-        ],
+
         style_table={
             'overflowX': 'auto',
             'tableLayout': 'fixed',
         }
     )
 
+app.clientside_callback(
+    """
+    function(active_cell) {
+        const allRows = document.querySelectorAll('#all-petitions-datatable .dash-spreadsheet-container .dash-spreadsheet tbody tr');
+        allRows.forEach(r => r.classList.remove('row-highlight'));
+        if (active_cell) {
+            const cellEl = document.querySelector(
+                `#all-petitions-datatable td[data-dash-row="${active_cell.row}"][data-dash-column="${active_cell.column_id}"]`
+            );
+            if (cellEl) cellEl.closest('tr').classList.add('row-highlight');
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('all-petitions-datatable', 'style'),
+    Input('all-petitions-datatable', 'active_cell')
+)
 
 # ── Map tab ───────────────────────────────────────────────
 
@@ -721,8 +741,6 @@ def update_graph(petition_id):
     )
 
     print(f"Time to plot the choropleth: {time.time() - plot_start:.4f}s")
-    print(df[['petition_id', 'median_signature_count', 'percentile_rank']].head(5))
-    print("NaN counts:", df[['median_signature_count', 'percentile_rank']].isna().sum())
 
     return (
         fig,
