@@ -238,14 +238,6 @@ app.index_string = '''
             .row-highlight td {
                 background-color: #cfe2ff !important;
             }
-            .dash-spreadsheet td.cell--selected,
-            .dash-spreadsheet td.focused,
-            .dash-spreadsheet td.cell--selected > div,
-            .dash-spreadsheet td.focused > div {
-                outline: none !important;
-                border: none !important;
-                box-shadow: none !important;
-            }
         </style>
     </head>
     <body>
@@ -547,7 +539,6 @@ def update_scheduled_debates(PCON24CD):
     Output('all-petitions-table', 'children'),
     Input('analytics-petition-dropdown', 'value'),
 )
-
 def update_all_petitions_table(PCON24CD):
     today = datetime.now().date()
 
@@ -593,6 +584,7 @@ def update_all_petitions_table(PCON24CD):
 
     return dash_table.DataTable(
         id='all-petitions-datatable',
+        cell_selectable=False,
         data=table_df.to_dict('records'),
         columns=[
             {'name': ['', 'Petition'], 'id': 'petition_title_link', 'presentation': 'markdown'},
@@ -642,30 +634,35 @@ def update_all_petitions_table(PCON24CD):
             'whiteSpace': 'normal',
             'height': 'auto',
         },
-
+        style_data_conditional=[
+            {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}
+        ],
         style_table={
             'overflowX': 'auto',
             'tableLayout': 'fixed',
         }
     )
 
+
 app.clientside_callback(
     """
-    function(active_cell) {
-        const allRows = document.querySelectorAll('#all-petitions-datatable .dash-spreadsheet-container .dash-spreadsheet tbody tr');
-        allRows.forEach(r => r.classList.remove('row-highlight'));
-        if (active_cell) {
-            const cellEl = document.querySelector(
-                `#all-petitions-datatable td[data-dash-row="${active_cell.row}"][data-dash-column="${active_cell.column_id}"]`
-            );
-            if (cellEl) cellEl.closest('tr').classList.add('row-highlight');
-        }
+    function(data) {
+        setTimeout(() => {
+            const rows = document.querySelectorAll('#all-petitions-datatable .dash-spreadsheet-container .dash-spreadsheet tbody tr');
+            rows.forEach(row => {
+                row.onclick = () => {
+                    rows.forEach(r => r.classList.remove('row-highlight'));
+                    row.classList.add('row-highlight');
+                };
+            });
+        }, 100);
         return window.dash_clientside.no_update;
     }
     """,
     Output('all-petitions-datatable', 'style'),
-    Input('all-petitions-datatable', 'active_cell')
+    Input('all-petitions-datatable', 'data')
 )
+
 
 # ── Map tab ───────────────────────────────────────────────
 
