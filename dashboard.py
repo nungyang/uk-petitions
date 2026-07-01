@@ -13,6 +13,7 @@ from functools import lru_cache
 
 import boto3
 import pandas as pd
+import numpy as np
 import geopandas as gpd
 import plotly.express as px
 from dash import Dash, dcc, Output, Input, html, dash_table, no_update
@@ -165,6 +166,10 @@ petitions_list = petitions_list.merge(median_counts, on='petition_id', how='left
 
 # Merging petitions count to petitions list
 petitions_df = petitions_list.merge(petitions_count, on='petition_id', how='left')
+
+# If total count is less than 10,000, then remove ranking
+petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_raw'] = np.nan
+petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_pop'] = np.nan
 
 petition_quantiles = (
     petitions_df
@@ -371,7 +376,7 @@ app.layout = html.Div([
                         ], md=6)
                     ]),
 
-                    # ── All Petitions table ───────────────────────────
+                    # ── All open petitions table ───────────────────────────
                     dbc.Row([
                         dbc.Col([
                             dbc.Card(
@@ -600,14 +605,15 @@ def update_all_petitions_table(PCON24CD, days_open_selected):
     df['sig_per_pop_rank'] = df['sig_per_pop_rank'].fillna(0).astype(int)
 
     table_df = df[[
-        'petition_title_link', 'opened_at',
+        'petition_title_link',
+        'opened_at',
         'days_open_interval',
         'total_signature_count',
         'signature_count',
         'percentile_rank_raw',
-        'percentile_rank_pop',
         'sig_per_pop',
         'sig_per_pop_rank',
+        'percentile_rank_pop',
         'scheduled_debate_date'
     ]].sort_values('total_signature_count', ascending=False)
 
@@ -621,7 +627,7 @@ def update_all_petitions_table(PCON24CD, days_open_selected):
             {'name': ['', 'Petition'], 'id': 'petition_title_link', 'presentation': 'markdown'},
             {'name': ['', 'Date opened'], 'id': 'opened_at', 'type': 'datetime'},
             {'name': ['', 'Days open'], 'id': 'days_open_interval'},
-            {'name': ['All petitions', 'Total signatures'], 'id': 'total_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
+            {'name': ['All open petitions', 'Total signatures'], 'id': 'total_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
             {'name': ['Raw counts', 'Constituency signatures'], 'id': 'signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
             {'name': ['Raw counts', 'Percentile ranking (counts)'], 'id': 'percentile_rank_raw', 'type': 'numeric'},
             {'name': ['Counts per 1,000 population', 'Signatures per 1,000'], 'id': 'sig_per_pop', 'type': 'numeric'},
