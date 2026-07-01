@@ -66,14 +66,14 @@ def get_constituency_geojson():
     if ENV == 'local':
         local_path = script_dir / 'cached_data' / 'constituencies_july_2024.geojson'
         print(f"Loading GeoJSON from local cache: {local_path}")
-        constituencies = gpd.read_file(local_path)
+        constituency_boundaries = gpd.read_file(local_path)
     else:
-        constituencies = load_geojson(
+        constituency_boundaries = load_geojson(
             'static data/constituencies_july_2024.geojson'
         )
-    constituencies = constituencies[['PCON24CD', 'geometry']]
-    constituencies['geometry'] = constituencies['geometry'].simplify(0.005)
-    return constituencies
+    constituency_boundaries = constituency_boundaries[['PCON24CD', 'geometry']]
+    constituency_boundaries['geometry'] = constituency_boundaries['geometry'].simplify(0.005)
+    return constituency_boundaries
 
 
 def get_petitions_data():
@@ -123,7 +123,7 @@ def get_petition_data(petition_id):
 print(f"Environment: {ENV}")
 
 print("Loading GeoJSON...")
-constituencies = get_constituency_geojson()
+constituency_boundaries = get_constituency_geojson()
 
 print("Loading petitions data...")
 petitions_list, petitions_count = get_petitions_data()
@@ -133,8 +133,20 @@ pop_df = get_population_data()
 
 print("Done loading data.")
 
+# Data pull has missing rows if value should actually be 0 so making sure they get filled with 0
+petition_ids = petitions_list[['petition_id']].drop_duplicates()
+pcon24cds = petitions_count[['PCON24CD', 'constituency_name']].drop_duplicates()
+
+skeleton_df = petition_ids.merge(pcon24cds, how='cross')
+
+petitions_count = skeleton_df.merge(petitions_count, on = ['petition_id', 'PCON24CD'], how = 'left')
+petitions_count['signature_count'] = petitions_count['signature_count'].fillna(0).astype(int)
+
+# output_path = script_dir / "cached_data" / "file_to_check.csv"
+# petitions_count.to_csv(output_path, index=False)
+
 # Adding data on population
-petitions_count = petitions_count.merge(pop_df[['PCON24CD', 'pop']], on='PCON24CD', how='left')
+petitions_count = petitions_count.merge(pop_df[['PCON24CD', 'pop']], on= ['PCON24CD'], how='left')
 
 # Adding column on sig per pop
 petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions_count['pop']) * 1000
@@ -305,15 +317,13 @@ petition_dropdown = dbc.RadioItems(
     style={'maxHeight': '80vh', 'overflowY': 'auto', 'padding': '10px'}
 )
 
-constituency_options = petitions_df[['PCON24CD', 'constituency_name']].drop_duplicates()
-
 constituency_dropdown = dcc.Dropdown(
     id='analytics-petition-dropdown',
     options=[
         {'label': row['constituency_name'], 'value': row['PCON24CD']}
-        for _, row in constituency_options.iterrows()
+        for _, row in pcon24cds.iterrows()
     ],
-    value=constituency_options.iloc[0]['PCON24CD'],
+    value=pcon24cds.iloc[0]['PCON24CD'],
     clearable=False
 )
 
@@ -719,7 +729,7 @@ def update_graph(petition_id):
     fig = px.choropleth(
         df,
         locations='PCON24CD',
-        geojson=constituencies,
+        geojson=constituency_boundaries,
         featureidkey="properties.PCON24CD",
         color='signature_count',
         color_continuous_scale="Viridis",
