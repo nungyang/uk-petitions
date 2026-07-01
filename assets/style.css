@@ -1,3 +1,19 @@
+/* Tighten wrapped-line spacing in the AG Grid petition title column */
+.petition-title-cell.ag-cell,
+.petition-title-cell .agGrid-Markdown,
+.petition-title-cell .agGrid-Markdown p {
+    line-height: 1.4 !important;
+}
+
+.petition-title-cell .agGrid-Markdown p {
+    margin: 0;
+}
+
+.petition-title-cell.ag-cell {
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
 /* Hide the radio button circles */
 .form-check-input {
     display: none !important;

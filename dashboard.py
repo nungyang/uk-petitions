@@ -17,7 +17,7 @@ import numpy as np
 import geopandas as gpd
 import plotly.express as px
 from dash import Dash, dcc, Output, Input, html, dash_table
-from dash.dash_table.Format import Format, Group
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
@@ -140,7 +140,7 @@ pcon24cds = petitions_count[['PCON24CD', 'constituency_name']].drop_duplicates()
 
 skeleton_df = petition_ids.merge(pcon24cds, how='cross')
 
-petitions_count = skeleton_df.merge(petitions_count, on = ['petition_id', 'PCON24CD'], how = 'left')
+petitions_count = skeleton_df.merge(petitions_count.drop(columns=['constituency_name']), on = ['petition_id', 'PCON24CD'], how = 'left')
 petitions_count['signature_count'] = petitions_count['signature_count'].fillna(0).astype(int)
 
 # output_path = script_dir / "cached_data" / "file_to_check.csv"
@@ -295,19 +295,6 @@ mygraph = dcc.Graph(
     style={'height': '85vh'}
 )
 
-days_open_checklist = dcc.Checklist(
-    id='days-open-filter',
-    options=[
-        {'label': 'Less than 1 month', 'value': 'Less than 1 month'},
-        {'label': '1-3 months', 'value': '1-3 months'},
-        {'label': '4-6 months', 'value': '4-6 months'},
-        {'label': '6+ months', 'value': '6+ months'},
-    ],
-    value=['Less than 1 month', '1-3 months', '4-6 months', '6+ months'],
-    inline=True
-)
-
-
 # ── Dropdowns ─────────────────────────────────────────────
 
 petition_options = petitions_list[['petition_id', 'petition_title']].copy()
@@ -382,7 +369,6 @@ app.layout = html.Div([
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H5("All Petitions", className="mb-3 text-center"),
-                                    days_open_checklist,
                                     html.Div(id='all-petitions-table')
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm"
@@ -537,9 +523,8 @@ def update_scheduled_debates(PCON24CD):
 @app.callback(
     Output('all-petitions-table', 'children'),
     Input('analytics-petition-dropdown', 'value'),
-    Input('days-open-filter', 'value'),
 )
-def update_all_petitions_table(PCON24CD, days_open_selected):
+def update_all_petitions_table(PCON24CD):
     today = datetime.now().date()
 
     # Constituency-level stats for the selected constituency
@@ -587,88 +572,49 @@ def update_all_petitions_table(PCON24CD, days_open_selected):
         'scheduled_debate_date'
     ]].sort_values('total_signature_count', ascending=False)
 
-    table_df = table_df[table_df['days_open_interval'].isin(days_open_selected)]
+    number_format = {'function': "d3.format(',')(params.value)"}
 
-    return dash_table.DataTable(
+    return dag.AgGrid(
         id='all-petitions-datatable',
-        cell_selectable=False,
-        data=table_df.to_dict('records'),
-        columns=[
-            {'name': ['', 'Petition'], 'id': 'petition_title_link', 'presentation': 'markdown'},
-            {'name': ['', 'Date opened'], 'id': 'opened_at', 'type': 'datetime'},
-            {'name': ['', 'Days open'], 'id': 'days_open_interval'},
-            {'name': ['All open petitions', 'Total signatures'], 'id': 'total_signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
-            {'name': ['Raw counts', 'Constituency signatures'], 'id': 'signature_count', 'type': 'numeric', 'format': Format(group=Group.yes)},
-            {'name': ['Raw counts', 'Percentile ranking (counts)'], 'id': 'percentile_rank_raw', 'type': 'numeric'},
-            {'name': ['Counts per 1,000 population', 'Signatures per 1,000'], 'id': 'sig_per_pop', 'type': 'numeric'},
-            {'name': ['Counts per 1,000 population', 'Percentile ranking (sig per 1000)'], 'id': 'percentile_rank_pop', 'type': 'numeric'},
-            {'name': ['', 'Scheduled debate'], 'id': 'scheduled_debate_date', 'type': 'datetime'},
+        rowData=table_df.to_dict('records'),
+        columnDefs=[
+            {'field': 'petition_title_link', 'headerName': 'Petition', 'cellRenderer': 'markdown',
+             'filter': 'agTextColumnFilter',
+             'filterParams': {'filterOptions': ['contains', 'notContains']},
+             'cellClass': 'petition-title-cell',
+             'flex': 3, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
+            {'field': 'opened_at', 'headerName': 'Date opened', 'flex': 1, 'minWidth': 95},
+            {'field': 'days_open_interval', 'headerName': 'Days open', 'flex': 0.8, 'minWidth': 110},
+            {
+                'headerName': 'All open petitions',
+                'children': [
+                    {'field': 'total_signature_count', 'headerName': 'Total signatures',
+                     'valueFormatter': number_format, 'flex': 1, 'minWidth': 100},
+                ]
+            },
+            {
+                'headerName': 'Raw counts',
+                'children': [
+                    {'field': 'signature_count', 'headerName': 'Constituency signatures',
+                     'valueFormatter': number_format, 'flex': 1, 'minWidth': 100},
+                    {'field': 'percentile_rank_raw', 'headerName': 'Percentile ranking (counts)', 'flex': 1, 'minWidth': 90},
+                ]
+            },
+            {
+                'headerName': 'Counts per 1,000 population',
+                'children': [
+                    {'field': 'sig_per_pop', 'headerName': 'Signatures per 1,000', 'flex': 1, 'minWidth': 90},
+                    {'field': 'percentile_rank_pop', 'headerName': 'Percentile ranking (sig per 1000)', 'flex': 1, 'minWidth': 90},
+                ]
+            },
+            {'field': 'scheduled_debate_date', 'headerName': 'Scheduled debate', 'flex': 1, 'minWidth': 100},
         ],
-        merge_duplicate_headers=True,
-        sort_action='native',
-        sort_mode='single',
-        page_action='native',
-        page_size=20,
-        style_cell={
-            'textAlign': 'left',
-            'padding': '4px 12px',
-            'fontSize': '13px',
-            'fontFamily': 'sans-serif',
-            'whiteSpace': 'normal',
-            'height': 'auto',
-            'overflow': 'hidden',
-            'boxSizing': 'border-box',
-            'verticalAlign': 'top',
-        },
-        style_cell_conditional=[
-            # Fixed widths on every column so nothing shifts on sort or content change
-            {'if': {'column_id': 'petition_title_link'},       'width': '300px', 'minWidth': '300px', 'maxWidth': '300px', 'whiteSpace': 'normal'},
-            {'if': {'column_id': 'opened_at'},                 'width': '100px',  'minWidth': '100px',  'maxWidth': '100px',  'textAlign': 'right'},
-            {'if': {'column_id': 'days_open_interval'}, 'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
-            {'if': {'column_id': 'total_signature_count'},     'width': '100px', 'minWidth': '100px', 'maxWidth': '100px', 'textAlign': 'right'},
-            {'if': {'column_id': 'signature_count'},           'width': '130px', 'minWidth': '130px', 'maxWidth': '130px', 'textAlign': 'right'},
-            {'if': {'column_id': 'percentile_rank_raw'},           'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
-            {'if': {'column_id': 'sig_per_pop'},               'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
-            {'if': {'column_id': 'percentile_rank_pop'},          'width': '110px', 'minWidth': '110px', 'maxWidth': '110px', 'textAlign': 'right'},
-            {'if': {'column_id': 'scheduled_debate_date'},     'width': '120px', 'minWidth': '120px', 'maxWidth': '120px', 'textAlign': 'right'},
-        ],
-        style_header={
-            'backgroundColor': '#f8f9fa',
-            'fontWeight': 'bold',
-            'borderBottom': '2px solid #dee2e6',
-            'textAlign': 'left',
-            'padding': '4px 12px',
-            'whiteSpace': 'normal',
-            'height': 'auto',
-        },
-        style_data_conditional=[
-            {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}
-        ],
-        style_table={
-            'overflowX': 'auto',
-            'tableLayout': 'fixed',
-        }
+        defaultColDef={'sortable': True, 'resizable': True},
+        dashGridOptions={'pagination': True, 'paginationPageSize': 20, 'domLayout': 'autoHeight'},
+        dangerously_allow_code=True,
+        className='ag-theme-alpine',
+        style={'width': '100%'},
     )
-
-
-app.clientside_callback(
-    """
-    function(data) {
-        setTimeout(() => {
-            const rows = document.querySelectorAll('#all-petitions-datatable .dash-spreadsheet-container .dash-spreadsheet tbody tr');
-            rows.forEach(row => {
-                row.onclick = () => {
-                    rows.forEach(r => r.classList.remove('row-highlight'));
-                    row.classList.add('row-highlight');
-                };
-            });
-        }, 100);
-        return window.dash_clientside.no_update;
-    }
-    """,
-    Output('all-petitions-datatable', 'style'),
-    Input('all-petitions-datatable', 'data')
-)
 
 
 # ── Map tab ───────────────────────────────────────────────
