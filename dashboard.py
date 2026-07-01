@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 import plotly.express as px
-from dash import Dash, dcc, Output, Input, html, dash_table, no_update
+from dash import Dash, dcc, Output, Input, html, dash_table
 from dash.dash_table.Format import Format, Group
 import dash_bootstrap_components as dbc
 from dateutil.relativedelta import relativedelta
@@ -466,68 +466,38 @@ def update_top5_raw(PCON24CD):
 
     top_5 = open_df.nlargest(5, 'signature_count')[
         ['petition_title', 'signature_count', 'petition_url']
-    ].reset_index(drop=True)
+    ].sort_values('signature_count', ascending=False).reset_index(drop=True)
 
     max_val = top_5['signature_count'].max()
-    padding = max_val * 0.15
-    top_5['petition_title_wrapped'] = top_5['petition_title'].apply(wrap_text)
 
-    fig = px.bar(
-        top_5,
-        x='signature_count',
-        y='petition_title_wrapped',
-        orientation='h',
-        custom_data=['petition_url'],
-        labels={'signature_count': 'Signatures', 'petition_title_wrapped': ''}
-    )
+    rows = []
+    for _, row in top_5.iterrows():
+        bar_width_pct = (row['signature_count'] / max_val) * 100 if max_val else 0
+        rows.append(
+            html.Div([
+                html.A(
+                    row['petition_title'],
+                    href=row['petition_url'],
+                    target='_blank',
+                    style={'fontSize': '12px', 'color': '#333', 'textDecoration': 'none'}
+                ),
+                html.Div([
+                    html.Div(style={
+                        'width': f'{bar_width_pct}%',
+                        'backgroundColor': '#0d6efd',
+                        'border': '1.5px solid #0a58ca',
+                        'opacity': 0.8,
+                        'height': '18px',
+                        'borderRadius': '2px'
+                    }),
+                    html.Span(f"{row['signature_count']:,}", style={
+                        'marginLeft': '8px', 'fontSize': '11px', 'color': '#333', 'whiteSpace': 'nowrap'
+                    })
+                ], style={'display': 'flex', 'alignItems': 'center', 'marginTop': '4px'})
+            ], style={'marginBottom': '14px'})
+        )
 
-    fig.update_layout(
-        yaxis={'categoryorder': 'total ascending'},
-        height=300,
-        margin=dict(l=150, r=20, t=10, b=40),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        bargap=0.5
-    )
-
-    fig.update_traces(
-        marker_color='#0d6efd',
-        marker_line_color='#0a58ca',
-        marker_line_width=1.5,
-        opacity=0.8,
-        text=top_5['signature_count'].apply(lambda x: f'{x:,}'),
-        textposition='outside',
-        textfont=dict(size=11, color='#333'),
-        hovertemplate=None,
-        hoverinfo='none'
-    )
-
-    fig.update_xaxes(
-        range=[-150, max_val + padding],
-        tickformat=',',
-        showgrid=True,
-        gridcolor='#e9ecef'
-    )
-
-    fig.update_yaxes(ticklen=40)
-
-    return dcc.Graph(
-        id='top-5-bar-chart-raw-count',
-        figure=fig,
-        config={'displayModeBar': False},
-        hoverData=None
-    )
-
-
-@app.callback(
-    Output('url', 'href'),
-    Input('top-5-bar-chart-raw-count', 'clickData'),
-    prevent_initial_call=True
-)
-def redirect_on_bar_click(click_raw):
-    if not click_raw or 'points' not in click_raw:
-        return no_update
-    return click_raw['points'][0]['customdata'][0]
+    return html.Div(rows, style={'padding': '10px 20px'})
 
 
 @app.callback(
