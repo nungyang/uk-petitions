@@ -204,9 +204,9 @@ def wrap_text(text, width=50):
     return '<br>'.join(lines)
 
 
-def _render_bar(value, max_val, bar_color, border_color):
+def _render_bar(value, max_val, bar_color, border_color, marker_pct=None):
     bar_width_pct = (value / max_val) * 100 if max_val else 0
-    return html.Div([
+    track_children = [
         html.Div(style={
             'width': f'{bar_width_pct}%',
             'backgroundColor': bar_color,
@@ -214,17 +214,29 @@ def _render_bar(value, max_val, bar_color, border_color):
             'opacity': 0.8,
             'height': '18px',
             'borderRadius': '2px'
-        }),
+        })
+    ]
+    if marker_pct is not None:
+        track_children.append(html.Div(style={
+            'position': 'absolute', 'left': f'{marker_pct}%', 'top': '-2px', 'bottom': '-2px',
+            'borderLeft': '2px dotted #333'
+        }))
+
+    return html.Div([
+        html.Div(track_children, style={'position': 'relative', 'flex': '1 1 auto'}),
         html.Span(f"{value:,}", style={
             'marginLeft': '8px', 'fontSize': '11px', 'color': '#333', 'whiteSpace': 'nowrap'
         })
     ], style={'display': 'flex', 'alignItems': 'center', 'marginTop': '2px'})
 
 
-def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca', secondary_col=None):
+def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca', secondary_col=None,
+                      marker_col=None):
     """Render a top-5 horizontal bar list, bars scaled to value_col's max across the top 5.
     If secondary_col is given, each row also shows what % of that column's value the
     primary value represents (e.g. constituency votes as a % of the petition's total).
+    If marker_col is given, each bar gets its own dotted vertical marker at that row's
+    marker_col value (e.g. the petition's median signature count across all constituencies).
 
     Every row has the same fixed height (title area + bar + secondary-line area, whether
     or not secondary_col is used) so that rows line up across two side-by-side charts
@@ -233,6 +245,8 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
     cols = ['petition_title', value_col, 'petition_url']
     if secondary_col:
         cols.append(secondary_col)
+    if marker_col:
+        cols.append(marker_col)
 
     top_5 = df.nlargest(5, value_col)[cols].sort_values(value_col, ascending=False).reset_index(drop=True)
 
@@ -246,6 +260,8 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
         else:
             secondary_text = ''
 
+        marker_pct = (row[marker_col] / max_val) * 100 if marker_col and max_val else None
+
         children = [
             html.A(
                 row['petition_title'],
@@ -257,7 +273,7 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
                     'textOverflow': 'ellipsis', 'width': '100%'
                 }
             ),
-            _render_bar(row[value_col], max_val, bar_color, border_color),
+            _render_bar(row[value_col], max_val, bar_color, border_color, marker_pct),
             html.Div(
                 secondary_text,
                 style={
@@ -414,7 +430,8 @@ upcoming_debate_dropdown = dcc.Dropdown(
         for _, row in upcoming_debate_options.iterrows()
     ],
     value=upcoming_debate_options.iloc[0]['petition_id'] if len(upcoming_debate_options) else None,
-    clearable=False
+    clearable=False,
+    style={'width': '380px'}
 )
 
 # ── Banner ─────────────────────────────────────────────────
@@ -475,13 +492,19 @@ app.layout = html.Div([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5("Upcoming Debates: signatures by constituency", className="mb-1 text-center"),
                                     dbc.Row([
-                                        dbc.Col([
-                                            html.Label("Select petition:", className="fw-bold mb-2"),
-                                            upcoming_debate_dropdown
-                                        ], md=6)
-                                    ], className="mb-2"),
+                                        dbc.Col(
+                                            html.H5("Upcoming Debates: signatures by constituency", className="mb-1"),
+                                            width="auto"
+                                        ),
+                                        dbc.Col(
+                                            dbc.Row([
+                                                dbc.Col(html.Label("Select petition:", className="fw-bold mb-0 me-2"), width="auto"),
+                                                dbc.Col(upcoming_debate_dropdown, width="auto"),
+                                            ], align="center", className="g-2 flex-nowrap"),
+                                            width="auto"
+                                        ),
+                                    ], align="center", justify="between", className="mb-2 g-0"),
                                     dbc.Row([
                                         dbc.Col([
                                             dbc.Card([
@@ -623,7 +646,8 @@ def update_top5_raw(PCON24CD):
     return title, render_top5_bars(
         open_df, 'signature_count',
         bar_color='#40a583', border_color='#1a7a5c',
-        secondary_col='total_signature_count'
+        secondary_col='total_signature_count',
+        marker_col='median_signature_count'
     )
 
 
@@ -730,6 +754,7 @@ def update_all_petitions_table(PCON24CD):
              'filter': 'agTextColumnFilter',
              'filterParams': {'filterOptions': ['contains', 'notContains']},
              'cellClass': 'petition-title-cell',
+             'sortable': False,
              'flex': 1.6, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
             {'field': 'opened_at', 'headerName': 'Date opened', 'flex': 0.9, 'minWidth': 125},
             {'field': 'months_open', 'headerName': 'Months open', 'flex': 0.8, 'minWidth': 110},
