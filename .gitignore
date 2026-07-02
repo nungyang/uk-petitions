@@ -4,3 +4,4 @@ venv/
 __pycache__/
 *.pyc
 cached_data/
+CLAUDE.md
