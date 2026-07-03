@@ -138,6 +138,7 @@ print("Done loading data.")
 # Data pull has missing rows if value should actually be 0 so making sure they get filled with 0
 petition_ids = petitions_list[['petition_id']].drop_duplicates()
 pcon24cds = petitions_count[['PCON24CD', 'constituency_name']].drop_duplicates()
+TOTAL_CONSTITUENCIES = len(pcon24cds)
 
 skeleton_df = petition_ids.merge(pcon24cds, how='cross')
 
@@ -155,6 +156,7 @@ petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions
 
 # Adding rank
 petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
+petitions_count['sig_rank_raw'] = petitions_count.groupby('petition_id')['signature_count'].rank(ascending=False, method='min')
 petitions_count['percentile_rank_raw'] = (100 - (petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100)).round(1)
 petitions_count['percentile_rank_pop'] = (100 - (petitions_count.groupby('petition_id')['sig_per_pop'].rank(pct=True) * 100)).round(1)
 
@@ -181,6 +183,19 @@ petition_quantiles = (
 
 
 # ── Utility functions ─────────────────────────────────────
+
+# Displays a percentile ranking (0 = best) as a "Top N%" / "Bottom 50%" category
+# instead of the raw number, while the underlying cell value (used for sorting)
+# stays numeric.
+PERCENTILE_CATEGORY_FORMAT = {'function': (
+    "params.value == null ? '' : "
+    "params.value <= 1 ? 'Top 1%' : "
+    "params.value <= 5 ? 'Top 5%' : "
+    "params.value <= 10 ? 'Top 10%' : "
+    "params.value <= 25 ? 'Top 25%' : "
+    "params.value <= 50 ? 'Top 50%' : 'Bottom 50%'"
+)}
+
 
 def wrap_text(text, width=50):
     """Insert <br> tags into long strings at word boundaries."""
@@ -222,29 +237,21 @@ def _render_bar(value, max_val, bar_color, border_color, marker_pct=None):
             'borderLeft': '2px dotted #333'
         }))
 
-    return html.Div([
-        html.Div(track_children, style={'position': 'relative', 'flex': '1 1 auto'}),
-        html.Span(f"{value:,}", style={
-            'marginLeft': '8px', 'fontSize': '11px', 'color': '#333', 'whiteSpace': 'nowrap'
-        })
-    ], style={'display': 'flex', 'alignItems': 'center', 'marginTop': '2px'})
+    return html.Div(
+        track_children, style={'position': 'relative', 'marginTop': '2px'}
+    )
 
 
-def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca', secondary_col=None,
-                      marker_col=None):
-    """Render a top-5 horizontal bar list, bars scaled to value_col's max across the top 5.
-    If secondary_col is given, each row also shows what % of that column's value the
-    primary value represents (e.g. constituency votes as a % of the petition's total).
-    If marker_col is given, each bar gets its own dotted vertical marker at that row's
-    marker_col value (e.g. the petition's median signature count across all constituencies).
+def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca', marker_col=None):
+    """Render a top-5 horizontal bar list, bars scaled to value_col's max across the top 5,
+    with the value shown below each bar. If marker_col is given, each bar also gets its own
+    dotted vertical marker at that row's marker_col value (e.g. the petition's median
+    signature count across all constituencies).
 
-    Every row has the same fixed height (title area + bar + secondary-line area, whether
-    or not secondary_col is used) so that rows line up across two side-by-side charts
-    built from this function, even when one has a secondary line and the other doesn't.
+    Every row has the same fixed height (title area + bar + value line) so that rows line up
+    across two side-by-side charts built from this function.
     """
     cols = ['petition_title', value_col, 'petition_url']
-    if secondary_col:
-        cols.append(secondary_col)
     if marker_col:
         cols.append(marker_col)
 
@@ -254,31 +261,29 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
 
     rows = []
     for _, row in top_5.iterrows():
-        if secondary_col:
-            pct = (row[value_col] / row[secondary_col] * 100) if row[secondary_col] else 0
-            secondary_text = f"{pct:.2f}% of {row[secondary_col]:,} total votes"
-        else:
-            secondary_text = ''
-
         marker_pct = (row[marker_col] / max_val) * 100 if marker_col and max_val else None
 
         children = [
-            html.A(
-                row['petition_title'],
-                href=row['petition_url'],
-                target='_blank',
-                style={
-                    'fontSize': '12px', 'color': '#333', 'textDecoration': 'none',
-                    'display': 'block', 'whiteSpace': 'nowrap', 'overflow': 'hidden',
-                    'textOverflow': 'ellipsis', 'width': '100%'
-                }
+            html.Div(
+                html.A(
+                    row['petition_title'],
+                    href=row['petition_url'],
+                    target='_blank',
+                    style={
+                        'fontSize': '14px', 'color': '#333', 'textDecoration': 'none',
+                        'display': '-webkit-box', 'WebkitLineClamp': '2', 'WebkitBoxOrient': 'vertical',
+                        'overflow': 'hidden', 'textOverflow': 'ellipsis', 'width': '100%',
+                        'lineHeight': '18px', 'maxHeight': '36px'
+                    }
+                ),
+                style={'height': '36px', 'display': 'flex', 'alignItems': 'flex-end'}
             ),
             _render_bar(row[value_col], max_val, bar_color, border_color, marker_pct),
             html.Div(
-                secondary_text,
+                f"{row[value_col]:,}",
                 style={
-                    'marginLeft': '8px', 'fontSize': '10px', 'color': '#777',
-                    'marginTop': '1px', 'height': '14px', 'visibility': 'visible' if secondary_col else 'hidden'
+                    'fontSize': '11px', 'color': '#333',
+                    'marginTop': '2px', 'height': '14px'
                 }
             )
         ]
@@ -306,6 +311,19 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <style>
+            /* Constituency dropdown placeholder */
+            #analytics-petition-dropdown .Select-placeholder {
+                text-align: left;
+                font-size: 15px;
+            }
+
+            /* When reopened with a value already selected, hide the pre-filled value
+               label so the search box reads as empty (JS below injects a real
+               placeholder onto the input in this state). */
+            #analytics-petition-dropdown .Select.is-open.has-value .Select-value {
+                display: none;
+            }
+
             /* Native dcc.Tabs header is replaced by the nav in the top banner; hide it
                but keep dcc.Tabs itself so its tab-switching/content mount-unmount logic
                (and the Map tab's plotly graph sizing) still works. */
@@ -361,6 +379,41 @@ app.index_string = '''
             {%scripts%}
             {%renderer%}
         </footer>
+        <script>
+            // The constituency dropdown hides its pre-filled value label on reopen (see CSS
+            // above); this injects a real placeholder onto the now-empty search input so it
+            // reads "Search for constituency" instead of just being blank.
+            (function() {
+                var observer = new MutationObserver(function() {
+                    var wrapper = document.getElementById('analytics-petition-dropdown');
+                    if (!wrapper) { return; }
+                    var selectEl = wrapper.querySelector('.Select');
+                    var input = wrapper.querySelector('.Select-input input');
+                    if (!selectEl || !input) { return; }
+
+                    var isOpenWithValue = selectEl.classList.contains('is-open') &&
+                        selectEl.classList.contains('has-value');
+
+                    // react-select continually re-sizes this input to match whatever was
+                    // last typed (down to 5px once empty) and clips overflow, so the width
+                    // must be re-applied every time this state is seen, not just once —
+                    // otherwise a previous typed search leaves it too narrow next time.
+                    if (isOpenWithValue) {
+                        if (!input.placeholder) { input.placeholder = 'Search for constituency'; }
+                        if (input.value === '' && input.style.width !== '210px') {
+                            input.style.width = '210px';
+                        }
+                    } else if (input.style.width || input.placeholder) {
+                        // Closing without selecting (e.g. clicking away) leaves this input's
+                        // widened, empty box — and its placeholder text — sitting on top of
+                        // the value label that reappears, so clear both.
+                        input.style.width = '';
+                        input.placeholder = '';
+                    }
+                });
+                observer.observe(document.body, {childList: true, subtree: true, attributes: true});
+            })();
+        </script>
     </body>
 </html>
 '''
@@ -390,6 +443,44 @@ top5_overall_component = render_top5_bars(
     border_color='#003f2d'
 )
 
+_today = datetime.now().date()
+_days_open = (_today - pd.to_datetime(petitions_list['opened_at']).dt.date).apply(lambda d: d.days)
+
+up_and_coming_df = petitions_list[
+    (petitions_list['status'] == 'open') &
+    (_days_open < 30) &
+    (petitions_list['total_signature_count'] >= 10000)
+][['petition_title', 'petition_url', 'opened_at', 'total_signature_count']].sort_values(
+    'total_signature_count', ascending=False
+).copy()
+up_and_coming_df['petition_title_link'] = up_and_coming_df.apply(
+    lambda r: f"[{r['petition_title']}]({r['petition_url']})", axis=1
+)
+
+if up_and_coming_df.empty:
+    up_and_coming_component = html.Div(
+        "No petitions opened in the last month have reached 10,000 signatures yet.",
+        style={'padding': '10px 20px', 'color': '#777', 'fontSize': '13px'}
+    )
+else:
+    up_and_coming_component = dag.AgGrid(
+        id='up-and-coming-datatable',
+        rowData=up_and_coming_df.to_dict('records'),
+        columnDefs=[
+            {'field': 'petition_title_link', 'headerName': 'Petition', 'cellRenderer': 'markdown',
+             'cellClass': 'petition-title-cell', 'sortable': False,
+             'flex': 2, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
+            {'field': 'opened_at', 'headerName': 'Date opened', 'flex': 1, 'minWidth': 110},
+            {'field': 'total_signature_count', 'headerName': 'Total signatures',
+             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 130},
+        ],
+        defaultColDef={'sortable': True, 'resizable': True, 'wrapHeaderText': True, 'autoHeaderHeight': True},
+        dashGridOptions={'domLayout': 'autoHeight', 'unSortIcon': True},
+        dangerously_allow_code=True,
+        className='ag-theme-alpine',
+        style={'width': '100%'},
+    )
+
 # ── Dropdowns ─────────────────────────────────────────────
 
 petition_options = petitions_list[['petition_id', 'petition_title']].copy()
@@ -410,10 +501,12 @@ constituency_dropdown = dcc.Dropdown(
         {'label': row['constituency_name'], 'value': row['PCON24CD']}
         for _, row in pcon24cds.iterrows()
     ],
-    value=pcon24cds.iloc[0]['PCON24CD'],
+    placeholder='Select a constituency',
     clearable=False,
-    style={'width': '260px'}
+    style={'width': '320px'}
 )
+
+NO_CONSTITUENCY_MESSAGE = "Select a constituency from the dropdown (see top right)"
 
 upcoming_debate_options = petitions_list[
     petitions_list['scheduled_debate_date'].notna() &
@@ -434,10 +527,16 @@ upcoming_debate_dropdown = dcc.Dropdown(
     style={'width': '380px'}
 )
 
+earliest_debate_date_str = (
+    pd.to_datetime(upcoming_debate_options.iloc[0]['scheduled_debate_date']).strftime('%d %b %Y')
+    if len(upcoming_debate_options) else 'N/A'
+)
+
 # ── Banner ─────────────────────────────────────────────────
 
 page_nav = dbc.Nav([
     dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True),
+    dbc.NavLink("All data", id='tab-3-navlink', active=False),
     dbc.NavLink("Map", id='tab-2-navlink', active=False),
 ], pills=True)
 
@@ -470,41 +569,51 @@ app.layout = html.Div([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5("Top 5 petitions overall (all constituencies)", className="mb-1 text-center"),
+                                    html.H5(
+                                        "Top 5 petitions overall (all constituencies)", className="mb-1 text-center",
+                                        style={'minHeight': '48px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
+                                    ),
                                     top5_overall_component
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], md=6),
+                        ], style={'flex': '0 0 29%', 'maxWidth': '29%'}),
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5(id='top-5-raw-title', className="mb-1 text-center"),
+                                    html.H5(
+                                        id='top-5-raw-title', className="mb-1 text-center",
+                                        style={'minHeight': '48px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
+                                    ),
                                     html.Div(id='top-5-table-raw-count')
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], md=6)
+                        ], style={'flex': '0 0 29%', 'maxWidth': '29%'}),
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5(
+                                        id='top5-percent-title', className="mb-3 text-center",
+                                        style={'minHeight': '48px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
+                                    ),
+                                    html.Div(id='top5-percent-table')
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm h-100"
+                            )
+                        ], style={'flex': '0 0 42%', 'maxWidth': '42%'})
                     ], className="g-2"),
 
-                    # ── Upcoming debates ────────────────────────────────────
+                    # ── Upcoming debates / Up and coming petitions ────────────
                     dbc.Row([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    dbc.Row([
-                                        dbc.Col(
-                                            html.H5("Upcoming Debates: signatures by constituency", className="mb-1"),
-                                            width="auto"
-                                        ),
-                                        dbc.Col(
-                                            dbc.Row([
-                                                dbc.Col(html.Label("Select petition:", className="fw-bold mb-0 me-2"), width="auto"),
-                                                dbc.Col(upcoming_debate_dropdown, width="auto"),
-                                            ], align="center", className="g-2 flex-nowrap"),
-                                            width="auto"
-                                        ),
-                                    ], align="center", justify="between", className="mb-2 g-0"),
+                                    html.H5(
+                                        f"Upcoming debate(s) on {earliest_debate_date_str}",
+                                        className="mb-2 text-center"
+                                    ),
+                                    html.Div(upcoming_debate_dropdown, style={'display': 'flex', 'justifyContent': 'flex-end'}, className="mb-2"),
                                     dbc.Row([
                                         dbc.Col([
                                             dbc.Card([
@@ -512,42 +621,44 @@ app.layout = html.Div([
                                                     html.H6("Debate date", className="text-muted mb-1", style={'fontSize': '12px'}),
                                                     html.H5(id='debate-date-box', className="mb-0")
                                                 ])
-                                            ], className="mb-2 shadow-sm", style={'borderRadius': '10px'}),
+                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                        ], md=4),
+                                        dbc.Col([
                                             dbc.Card([
                                                 dbc.CardBody([
                                                     html.H6("Total votes (all constituencies)", className="text-muted mb-1", style={'fontSize': '12px'}),
                                                     html.H5(id='debate-total-votes-box', className="mb-0")
                                                 ])
-                                            ], className="mb-2 shadow-sm", style={'borderRadius': '10px'}),
+                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                        ], md=4),
+                                        dbc.Col([
                                             dbc.Card([
                                                 dbc.CardBody([
                                                     html.H6("Votes in selected constituency", className="text-muted mb-1", style={'fontSize': '12px'}),
                                                     html.H5(id='debate-constituency-votes-box', className="mb-0")
                                                 ])
-                                            ], className="shadow-sm", style={'borderRadius': '10px'}),
-                                        ], md=3),
-                                        dbc.Col([
-                                            dcc.Graph(id='upcoming-debates-histogram', style={'height': '350px'})
-                                        ], md=9)
-                                    ])
+                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                        ], md=4),
+                                    ], className="g-2 mb-2"),
+                                    dcc.Graph(
+                                        id='upcoming-debates-histogram',
+                                        style={'height': '350px'},
+                                        config={'displayModeBar': False}
+                                    )
                                 ], className="pt-2 pb-2"),
-                                className="shadow-sm"
+                                className="shadow-sm h-100"
                             )
-                        ])
-                    ], className="mt-4"),
-
-                    # ── All open petitions table ───────────────────────────
-                    dbc.Row([
+                        ], md=6),
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5("All Petitions", className="mb-3 text-center"),
-                                    html.Div(id='all-petitions-table')
+                                    html.H5("Up and coming petitions", className="mb-3 text-center"),
+                                    up_and_coming_component
                                 ], className="pt-2 pb-2"),
-                                className="shadow-sm"
+                                className="shadow-sm h-100"
                             )
-                        ])
-                    ], className="mt-4")
+                        ], md=6)
+                    ], className="g-2 mt-4"),
 
                 ], style={'padding': '20px'})
             ]),
@@ -600,6 +711,24 @@ app.layout = html.Div([
                         ])
                     ], style={'flex': '1'})
                 ], style={'minHeight': '80vh'})
+            ]),
+
+            dcc.Tab(value='tab-3', children=[
+                html.Div([
+
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("All Petitions", className="mb-3 text-center"),
+                                    html.Div(id='all-petitions-table')
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm"
+                            )
+                        ])
+                    ])
+
+                ], style={'padding': '20px'})
             ])
 
         ])
@@ -617,14 +746,18 @@ app.layout = html.Div([
     Output('main-tabs', 'value'),
     Output('tab-1-navlink', 'active'),
     Output('tab-2-navlink', 'active'),
+    Output('tab-3-navlink', 'active'),
     Input('tab-1-navlink', 'n_clicks'),
     Input('tab-2-navlink', 'n_clicks'),
+    Input('tab-3-navlink', 'n_clicks'),
     prevent_initial_call=True
 )
-def switch_tab(_n1, _n2):
+def switch_tab(_n1, _n2, _n3):
     if ctx.triggered_id == 'tab-2-navlink':
-        return 'tab-2', False, True
-    return 'tab-1', True, False
+        return 'tab-2', False, True, False
+    if ctx.triggered_id == 'tab-3-navlink':
+        return 'tab-3', False, False, True
+    return 'tab-1', True, False, False
 
 
 # ── Constituency Overview tab ─────────────────────────────
@@ -635,6 +768,15 @@ def switch_tab(_n1, _n2):
     Input('analytics-petition-dropdown', 'value')
 )
 def update_top5_raw(PCON24CD):
+    if PCON24CD is None:
+        return "Top 5 petitions in your constituency", html.Div(
+            NO_CONSTITUENCY_MESSAGE,
+            style={
+                'padding': '10px 20px', 'color': '#333', 'fontSize': '16px', 'textAlign': 'center',
+                'minHeight': '250px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'
+            }
+        )
+
     open_df = petitions_df[
         (petitions_df['PCON24CD'] == PCON24CD) &
         (petitions_df['status'] == 'open')
@@ -646,9 +788,67 @@ def update_top5_raw(PCON24CD):
     return title, render_top5_bars(
         open_df, 'signature_count',
         bar_color='#40a583', border_color='#1a7a5c',
-        secondary_col='total_signature_count',
         marker_col='median_signature_count'
     )
+
+
+@app.callback(
+    Output('top5-percent-title', 'children'),
+    Output('top5-percent-table', 'children'),
+    Input('analytics-petition-dropdown', 'value')
+)
+def update_top5_percent(PCON24CD):
+    if PCON24CD is None:
+        return "Petitions where your constituency has top 5% of votes", html.Div(
+            NO_CONSTITUENCY_MESSAGE,
+            style={
+                'padding': '10px 20px', 'color': '#333', 'fontSize': '16px', 'textAlign': 'center',
+                'minHeight': '250px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'
+            }
+        )
+
+    constituency_name = pcon24cds.loc[pcon24cds['PCON24CD'] == PCON24CD, 'constituency_name'].iloc[0]
+    title = f"Petitions where {constituency_name} has top 5% of votes"
+
+    df = petitions_df[
+        (petitions_df['PCON24CD'] == PCON24CD) &
+        (petitions_df['status'] == 'open') &
+        (petitions_df['percentile_rank_raw'] <= 5)
+    ][['petition_title', 'petition_url', 'sig_rank_raw', 'percentile_rank_raw']] \
+        .drop_duplicates(subset='petition_title') \
+        .sort_values('percentile_rank_raw', ascending=True) \
+        .copy()
+
+    if df.empty:
+        return title, html.Div(
+            "No petitions currently have this constituency in the top 5% of signatures.",
+            style={'padding': '10px 20px', 'color': '#777', 'fontSize': '13px'}
+        )
+
+    df['petition_title_link'] = df.apply(
+        lambda r: f"[{r['petition_title']}]({r['petition_url']})", axis=1
+    )
+    df['sig_rank_raw'] = df['sig_rank_raw'].astype(int)
+
+    rank_format = {'function': f"params.value + ' of {TOTAL_CONSTITUENCIES}'"}
+
+    table = dag.AgGrid(
+        id='top5-percent-datatable',
+        rowData=df.to_dict('records'),
+        columnDefs=[
+            {'field': 'petition_title_link', 'headerName': 'Petition', 'cellRenderer': 'markdown',
+             'cellClass': 'petition-title-cell',
+             'flex': 2, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
+            {'field': 'sig_rank_raw', 'headerName': 'Ranking', 'flex': 1, 'minWidth': 110,
+             'valueFormatter': rank_format},
+        ],
+        defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
+        dangerously_allow_code=True,
+        className='ag-theme-alpine',
+        style={'width': '100%', 'height': '340px'},
+    )
+
+    return title, table
 
 
 @app.callback(
@@ -667,27 +867,39 @@ def update_debate_section(petition_id, PCON24CD):
 
     total_votes = df['total_signature_count'].iloc[0]
 
-    constituency_votes = df.loc[df['PCON24CD'] == PCON24CD, 'signature_count'].iloc[0]
+    constituency_votes = (
+        df.loc[df['PCON24CD'] == PCON24CD, 'signature_count'].iloc[0] if PCON24CD is not None else None
+    )
 
     counts, bin_edges = np.histogram(df['signature_count'], bins=30)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     bin_widths = bin_edges[1:] - bin_edges[:-1]
 
-    constituency_bin = np.searchsorted(bin_edges, constituency_votes, side='right') - 1
-    constituency_bin = min(max(constituency_bin, 0), len(counts) - 1)
-
-    bar_colors = ['#0d6efd'] * len(counts)
-    bar_colors[constituency_bin] = '#fd7e14'
+    bar_colors = ['#006548'] * len(counts)
+    if constituency_votes is not None:
+        constituency_bin = np.searchsorted(bin_edges, constituency_votes, side='right') - 1
+        constituency_bin = min(max(constituency_bin, 0), len(counts) - 1)
+        bar_colors[constituency_bin] = '#40a583'
 
     fig = go.Figure(go.Bar(x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors))
     fig.update_layout(
-        xaxis_title='Signatures in constituency',
+        xaxis_title='Number of signatures',
         yaxis_title='Number of constituencies',
         margin={'r': 20, 't': 20, 'l': 60, 'b': 40},
-        bargap=0.05
+        bargap=0.05,
+        font=dict(
+            family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+            size=12, color='#333'
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13)),
+        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13)),
     )
 
-    return debate_date_str, f"{total_votes:,}", f"{constituency_votes:,}", fig
+    constituency_votes_str = f"{constituency_votes:,}" if constituency_votes is not None else "Select a constituency"
+
+    return debate_date_str, f"{total_votes:,}", constituency_votes_str, fig
 
 
 # ── All Petitions table ───────────────────────────────────
@@ -765,14 +977,16 @@ def update_all_petitions_table(PCON24CD):
                 'children': [
                     {'field': 'signature_count', 'headerName': 'Constituency signatures',
                      'valueFormatter': number_format, 'flex': 1, 'minWidth': 150},
-                    {'field': 'percentile_rank_raw', 'headerName': 'Percentile ranking (counts)', 'flex': 1, 'minWidth': 130},
+                    {'field': 'percentile_rank_raw', 'headerName': 'Percentile ranking (counts)', 'flex': 1, 'minWidth': 130,
+                     'valueFormatter': PERCENTILE_CATEGORY_FORMAT},
                 ]
             },
             {
                 'headerName': 'Counts per 1,000 population',
                 'children': [
                     {'field': 'sig_per_pop', 'headerName': 'Signatures per 1,000', 'flex': 1, 'minWidth': 130},
-                    {'field': 'percentile_rank_pop', 'headerName': 'Percentile ranking (sig per 1000)', 'flex': 1, 'minWidth': 130},
+                    {'field': 'percentile_rank_pop', 'headerName': 'Percentile ranking (sig per 1000)', 'flex': 1, 'minWidth': 130,
+                     'valueFormatter': PERCENTILE_CATEGORY_FORMAT},
                 ]
             },
             {'field': 'scheduled_debate_date', 'headerName': 'Scheduled debate', 'flex': 0.8, 'minWidth': 135},
