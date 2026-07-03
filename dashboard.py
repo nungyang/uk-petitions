@@ -244,11 +244,11 @@ def _render_bar(value, max_val, bar_color, border_color, marker_pct=None):
 
 def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca', marker_col=None):
     """Render a top-5 horizontal bar list, bars scaled to value_col's max across the top 5,
-    with the value shown below each bar. If marker_col is given, each bar also gets its own
-    dotted vertical marker at that row's marker_col value (e.g. the petition's median
-    signature count across all constituencies).
+    with the value and "signatures" shown below each bar. If marker_col is given, each bar
+    also gets its own dotted vertical marker at that row's marker_col value (e.g. the
+    petition's median signature count across all constituencies).
 
-    Every row has the same fixed height (title area + bar + value line) so that rows line up
+    Every row has the same fixed height (title area + bar + value block) so that rows line up
     across two side-by-side charts built from this function.
     """
     cols = ['petition_title', value_col, 'petition_url']
@@ -279,16 +279,13 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
                 style={'height': '36px', 'display': 'flex', 'alignItems': 'flex-end'}
             ),
             _render_bar(row[value_col], max_val, bar_color, border_color, marker_pct),
-            html.Div(
-                f"{row[value_col]:,}",
-                style={
-                    'fontSize': '11px', 'color': '#333',
-                    'marginTop': '2px', 'height': '14px'
-                }
-            )
+            html.Div([
+                html.Span(f"{row[value_col]:,}", style={'fontWeight': 'bold', 'color': '#333'}),
+                html.Span(" signatures", style={'color': '#777'})
+            ], style={'fontSize': '11px', 'marginTop': '3px'})
         ]
 
-        rows.append(html.Div(children, style={'marginBottom': '6px'}))
+        rows.append(html.Div(children, style={'marginBottom': '10px'}))
 
     return html.Div(rows, style={'padding': '10px 20px'})
 
@@ -311,6 +308,25 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <style>
+            /* Smaller card title headings across the dashboard */
+            .card-body h5 {
+                font-size: 1rem;
+            }
+
+            /* Tighten the markdown-rendered two-line "signatures" cell: it inherits
+               ag-Grid's row-height-driven line-height (~39px), which spaces the two
+               lines out far more than a normal wrapped line, and center it. */
+            .sig-ratio-cell {
+                text-align: center;
+                display: flex !important;
+                align-items: flex-start;
+                justify-content: center;
+                padding-top: 8px;
+            }
+            .sig-ratio-cell .agGrid-Markdown div {
+                line-height: 1.3;
+            }
+
             /* Constituency dropdown placeholder */
             #analytics-petition-dropdown .Select-placeholder {
                 text-align: left;
@@ -571,37 +587,37 @@ app.layout = html.Div([
                                 dbc.CardBody([
                                     html.H5(
                                         "Top 5 petitions overall (all constituencies)", className="mb-1 text-center",
-                                        style={'minHeight': '48px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
+                                        style={'minHeight': '40px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
                                     ),
                                     top5_overall_component
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], style={'flex': '0 0 29%', 'maxWidth': '29%'}),
+                        ], style={'flex': '0 0 31%', 'maxWidth': '31%'}),
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H5(
                                         id='top-5-raw-title', className="mb-1 text-center",
-                                        style={'minHeight': '48px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
+                                        style={'minHeight': '40px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
                                     ),
                                     html.Div(id='top-5-table-raw-count')
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], style={'flex': '0 0 29%', 'maxWidth': '29%'}),
+                        ], style={'flex': '0 0 31%', 'maxWidth': '31%'}),
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H5(
-                                        id='top5-percent-title', className="mb-3 text-center",
-                                        style={'minHeight': '48px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
+                                        id='top5-percent-title', className="mb-1 text-center",
+                                        style={'minHeight': '40px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}
                                     ),
-                                    html.Div(id='top5-percent-table')
+                                    html.Div(id='top5-percent-table', style={'paddingTop': '2px'})
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], style={'flex': '0 0 42%', 'maxWidth': '42%'})
+                        ], style={'flex': '0 0 38%', 'maxWidth': '38%'})
                     ], className="g-2"),
 
                     # ── Upcoming debates / Up and coming petitions ────────────
@@ -814,7 +830,8 @@ def update_top5_percent(PCON24CD):
         (petitions_df['PCON24CD'] == PCON24CD) &
         (petitions_df['status'] == 'open') &
         (petitions_df['percentile_rank_raw'] <= 5)
-    ][['petition_title', 'petition_url', 'sig_rank_raw', 'percentile_rank_raw']] \
+    ][['petition_title', 'petition_url', 'sig_rank_raw', 'percentile_rank_raw',
+       'signature_count', 'total_signature_count']] \
         .drop_duplicates(subset='petition_title') \
         .sort_values('percentile_rank_raw', ascending=True) \
         .copy()
@@ -829,6 +846,9 @@ def update_top5_percent(PCON24CD):
         lambda r: f"[{r['petition_title']}]({r['petition_url']})", axis=1
     )
     df['sig_rank_raw'] = df['sig_rank_raw'].astype(int)
+    df['sig_ratio_display'] = df.apply(
+        lambda r: f"{r['signature_count']:,}  \nof {r['total_signature_count']:,} sigs", axis=1
+    )
 
     rank_format = {'function': f"params.value + ' of {TOTAL_CONSTITUENCIES}'"}
 
@@ -841,11 +861,14 @@ def update_top5_percent(PCON24CD):
              'flex': 2, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
             {'field': 'sig_rank_raw', 'headerName': 'Ranking', 'flex': 1, 'minWidth': 110,
              'valueFormatter': rank_format},
+            {'field': 'sig_ratio_display', 'headerName': 'Signatures', 'cellRenderer': 'markdown',
+             'cellClass': 'sig-ratio-cell', 'flex': 1.4, 'minWidth': 150, 'wrapText': True, 'autoHeight': True},
         ],
-        defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
+        defaultColDef={'sortable': False, 'resizable': False},
+        dashGridOptions={'headerHeight': 32},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
-        style={'width': '100%', 'height': '340px'},
+        style={'width': '100%', 'height': '435px'},
     )
 
     return title, table
