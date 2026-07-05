@@ -234,7 +234,7 @@ def _render_bar(value, max_val, bar_color, border_color, marker_pct=None):
     if marker_pct is not None:
         track_children.append(html.Div(style={
             'position': 'absolute', 'left': f'{marker_pct}%', 'top': '-2px', 'bottom': '-2px',
-            'borderLeft': '2px dotted #333'
+            'borderLeft': '3px solid #D55E00'
         }))
 
     return html.Div(
@@ -327,6 +327,11 @@ app.index_string = '''
                 line-height: 1.3;
             }
 
+            /* Center the "Ranking"/"Signatures" column headers in the top 5% table */
+            .ag-header-center .ag-header-cell-label {
+                justify-content: center;
+            }
+
             /* Constituency dropdown placeholder */
             #analytics-petition-dropdown .Select-placeholder {
                 text-align: left;
@@ -336,7 +341,9 @@ app.index_string = '''
             /* When reopened with a value already selected, hide the pre-filled value
                label so the search box reads as empty (JS below injects a real
                placeholder onto the input in this state). */
-            #analytics-petition-dropdown .Select.is-open.has-value .Select-value {
+            #analytics-petition-dropdown .Select.is-open.has-value .Select-value,
+            #debate-date-dropdown .Select.is-open.has-value .Select-value,
+            #upcoming-debate-dropdown .Select.is-open.has-value .Select-value {
                 display: none;
             }
 
@@ -396,36 +403,43 @@ app.index_string = '''
             {%renderer%}
         </footer>
         <script>
-            // The constituency dropdown hides its pre-filled value label on reopen (see CSS
-            // above); this injects a real placeholder onto the now-empty search input so it
-            // reads "Search for constituency" instead of just being blank.
+            // Some dropdowns hide their pre-filled value label on reopen (see CSS above);
+            // this injects a real placeholder onto the now-empty search input for each one
+            // so it reads e.g. "Search for constituency" instead of just being blank.
             (function() {
+                var DROPDOWNS = [
+                    {id: 'analytics-petition-dropdown', placeholder: 'Search for constituency', width: '210px'},
+                    {id: 'debate-date-dropdown', placeholder: 'Select date', width: '100px'},
+                    {id: 'upcoming-debate-dropdown', placeholder: 'Select petition', width: '110px'}
+                ];
                 var observer = new MutationObserver(function() {
-                    var wrapper = document.getElementById('analytics-petition-dropdown');
-                    if (!wrapper) { return; }
-                    var selectEl = wrapper.querySelector('.Select');
-                    var input = wrapper.querySelector('.Select-input input');
-                    if (!selectEl || !input) { return; }
+                    DROPDOWNS.forEach(function(cfg) {
+                        var wrapper = document.getElementById(cfg.id);
+                        if (!wrapper) { return; }
+                        var selectEl = wrapper.querySelector('.Select');
+                        var input = wrapper.querySelector('.Select-input input');
+                        if (!selectEl || !input) { return; }
 
-                    var isOpenWithValue = selectEl.classList.contains('is-open') &&
-                        selectEl.classList.contains('has-value');
+                        var isOpenWithValue = selectEl.classList.contains('is-open') &&
+                            selectEl.classList.contains('has-value');
 
-                    // react-select continually re-sizes this input to match whatever was
-                    // last typed (down to 5px once empty) and clips overflow, so the width
-                    // must be re-applied every time this state is seen, not just once —
-                    // otherwise a previous typed search leaves it too narrow next time.
-                    if (isOpenWithValue) {
-                        if (!input.placeholder) { input.placeholder = 'Search for constituency'; }
-                        if (input.value === '' && input.style.width !== '210px') {
-                            input.style.width = '210px';
+                        // react-select continually re-sizes this input to match whatever was
+                        // last typed (down to 5px once empty) and clips overflow, so the width
+                        // must be re-applied every time this state is seen, not just once —
+                        // otherwise a previous typed search leaves it too narrow next time.
+                        if (isOpenWithValue) {
+                            if (!input.placeholder) { input.placeholder = cfg.placeholder; }
+                            if (input.value === '' && input.style.width !== cfg.width) {
+                                input.style.width = cfg.width;
+                            }
+                        } else if (input.style.width || input.placeholder) {
+                            // Closing without selecting (e.g. clicking away) leaves this input's
+                            // widened, empty box — and its placeholder text — sitting on top of
+                            // the value label that reappears, so clear both.
+                            input.style.width = '';
+                            input.placeholder = '';
                         }
-                    } else if (input.style.width || input.placeholder) {
-                        // Closing without selecting (e.g. clicking away) leaves this input's
-                        // widened, empty box — and its placeholder text — sitting on top of
-                        // the value label that reappears, so clear both.
-                        input.style.width = '';
-                        input.placeholder = '';
-                    }
+                    });
                 });
                 observer.observe(document.body, {childList: true, subtree: true, attributes: true});
             })();
@@ -531,21 +545,24 @@ upcoming_debate_options = petitions_list[
 
 upcoming_debate_dropdown = dcc.Dropdown(
     id='upcoming-debate-dropdown',
-    options=[
-        {
-            'label': f"{row['petition_title']} ({pd.to_datetime(row['scheduled_debate_date']).strftime('%d %b %Y')})",
-            'value': row['petition_id']
-        }
-        for _, row in upcoming_debate_options.iterrows()
-    ],
-    value=upcoming_debate_options.iloc[0]['petition_id'] if len(upcoming_debate_options) else None,
+    options=[],
+    placeholder='Select petition',
     clearable=False,
-    style={'width': '380px'}
+    style={'width': '100%'}
 )
 
-earliest_debate_date_str = (
-    pd.to_datetime(upcoming_debate_options.iloc[0]['scheduled_debate_date']).strftime('%d %b %Y')
-    if len(upcoming_debate_options) else 'N/A'
+distinct_debate_dates = sorted(upcoming_debate_options['scheduled_debate_date'].unique())
+
+debate_date_dropdown = dcc.Dropdown(
+    id='debate-date-dropdown',
+    options=[
+        {'label': pd.to_datetime(d).strftime('%d %b %Y'), 'value': d}
+        for d in distinct_debate_dates
+    ],
+    value=distinct_debate_dates[0] if len(distinct_debate_dates) else None,
+    placeholder='Select date',
+    clearable=False,
+    style={'width': '160px'}
 )
 
 # ── Banner ─────────────────────────────────────────────────
@@ -620,25 +637,26 @@ app.layout = html.Div([
                         ], style={'flex': '0 0 38%', 'maxWidth': '38%'})
                     ], className="g-2"),
 
-                    # ── Upcoming debates / Up and coming petitions ────────────
+                    # ── Up and coming petitions / Upcoming debates ────────────
                     dbc.Row([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5(
-                                        f"Upcoming debate(s) on {earliest_debate_date_str}",
-                                        className="mb-2 text-center"
-                                    ),
-                                    html.Div(upcoming_debate_dropdown, style={'display': 'flex', 'justifyContent': 'flex-end'}, className="mb-2"),
+                                    html.H5("Up and coming petitions", className="mb-3 text-center"),
+                                    up_and_coming_component
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm h-100"
+                            )
+                        ], style={'flex': '0 0 40%', 'maxWidth': '40%'}),
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.Div([
+                                        html.H5("Upcoming debate(s) on", className="mb-0 me-2"),
+                                        debate_date_dropdown
+                                    ], className="mb-2 d-flex align-items-center justify-content-center"),
+                                    html.Div(upcoming_debate_dropdown, className="mb-2"),
                                     dbc.Row([
-                                        dbc.Col([
-                                            dbc.Card([
-                                                dbc.CardBody([
-                                                    html.H6("Debate date", className="text-muted mb-1", style={'fontSize': '12px'}),
-                                                    html.H5(id='debate-date-box', className="mb-0")
-                                                ])
-                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                        ], md=4),
                                         dbc.Col([
                                             dbc.Card([
                                                 dbc.CardBody([
@@ -646,15 +664,39 @@ app.layout = html.Div([
                                                     html.H5(id='debate-total-votes-box', className="mb-0")
                                                 ])
                                             ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                        ], md=4),
+                                        ], style={'flex': '0 0 20%', 'maxWidth': '20%'}),
                                         dbc.Col([
                                             dbc.Card([
                                                 dbc.CardBody([
-                                                    html.H6("Votes in selected constituency", className="text-muted mb-1", style={'fontSize': '12px'}),
+                                                    html.H6("Votes in selected constituency", id='debate-constituency-votes-label', className="text-muted mb-1", style={'fontSize': '12px'}),
                                                     html.H5(id='debate-constituency-votes-box', className="mb-0")
                                                 ])
                                             ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                        ], md=4),
+                                        ], style={'flex': '0 0 20%', 'maxWidth': '20%'}),
+                                        dbc.Col([
+                                            dbc.Card([
+                                                dbc.CardBody([
+                                                    html.H6("% of total votes", className="text-muted mb-1", style={'fontSize': '12px'}),
+                                                    html.H5(id='debate-pct-of-total-box', className="mb-0")
+                                                ])
+                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                        ], style={'flex': '0 0 20%', 'maxWidth': '20%'}),
+                                        dbc.Col([
+                                            dbc.Card([
+                                                dbc.CardBody([
+                                                    html.H6("Signatures per 1,000 population", className="text-muted mb-1", style={'fontSize': '12px'}),
+                                                    html.H5(id='debate-sig-per-pop-box', className="mb-0")
+                                                ])
+                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                        ], style={'flex': '0 0 20%', 'maxWidth': '20%'}),
+                                        dbc.Col([
+                                            dbc.Card([
+                                                dbc.CardBody([
+                                                    html.H6("Ranking", className="text-muted mb-1", style={'fontSize': '12px'}),
+                                                    html.H5(id='debate-ranking-box', className="mb-0")
+                                                ])
+                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                        ], style={'flex': '0 0 20%', 'maxWidth': '20%'}),
                                     ], className="g-2 mb-2"),
                                     dcc.Graph(
                                         id='upcoming-debates-histogram',
@@ -664,17 +706,8 @@ app.layout = html.Div([
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], md=6),
-                        dbc.Col([
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.H5("Up and coming petitions", className="mb-3 text-center"),
-                                    up_and_coming_component
-                                ], className="pt-2 pb-2"),
-                                className="shadow-sm h-100"
-                            )
-                        ], md=6)
-                    ], className="g-2 mt-4"),
+                        ], style={'flex': '0 0 60%', 'maxWidth': '60%'})
+                    ], className="g-2 mt-2"),
 
                 ], style={'padding': '20px'})
             ]),
@@ -788,7 +821,7 @@ def update_top5_raw(PCON24CD):
         return "Top 5 petitions in your constituency", html.Div(
             NO_CONSTITUENCY_MESSAGE,
             style={
-                'padding': '10px 20px', 'color': '#333', 'fontSize': '16px', 'textAlign': 'center',
+                'padding': '10px 20px', 'color': '#C0392B', 'fontSize': '16px', 'textAlign': 'center',
                 'minHeight': '250px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'
             }
         )
@@ -818,7 +851,7 @@ def update_top5_percent(PCON24CD):
         return "Petitions where your constituency has top 5% of votes", html.Div(
             NO_CONSTITUENCY_MESSAGE,
             style={
-                'padding': '10px 20px', 'color': '#333', 'fontSize': '16px', 'textAlign': 'center',
+                'padding': '10px 20px', 'color': '#C0392B', 'fontSize': '16px', 'textAlign': 'center',
                 'minHeight': '250px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'
             }
         )
@@ -847,7 +880,7 @@ def update_top5_percent(PCON24CD):
     )
     df['sig_rank_raw'] = df['sig_rank_raw'].astype(int)
     df['sig_ratio_display'] = df.apply(
-        lambda r: f"{r['signature_count']:,}  \nof {r['total_signature_count']:,} sigs", axis=1
+        lambda r: f"{r['signature_count']:,} of  \n{r['total_signature_count']:,} sigs", axis=1
     )
 
     rank_format = {'function': f"params.value + ' of {TOTAL_CONSTITUENCIES}'"}
@@ -860,43 +893,80 @@ def update_top5_percent(PCON24CD):
              'cellClass': 'petition-title-cell',
              'flex': 2, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
             {'field': 'sig_rank_raw', 'headerName': 'Ranking', 'flex': 1, 'minWidth': 110,
-             'valueFormatter': rank_format},
+             'valueFormatter': rank_format, 'headerClass': 'ag-header-center',
+             'cellStyle': {'textAlign': 'center'}},
             {'field': 'sig_ratio_display', 'headerName': 'Signatures', 'cellRenderer': 'markdown',
-             'cellClass': 'sig-ratio-cell', 'flex': 1.4, 'minWidth': 150, 'wrapText': True, 'autoHeight': True},
+             'cellClass': 'sig-ratio-cell', 'headerClass': 'ag-header-center',
+             'flex': 1.4, 'minWidth': 150, 'wrapText': True, 'autoHeight': True},
         ],
         defaultColDef={'sortable': False, 'resizable': False},
-        dashGridOptions={'headerHeight': 32},
+        dashGridOptions={'headerHeight': 32, 'domLayout': 'autoHeight'},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
-        style={'width': '100%', 'height': '435px'},
+        style={'width': '100%'},
     )
 
-    return title, table
+    # Grid sizes itself to however many rows there are, but never grows past the
+    # height the card was originally designed for — it scrolls internally instead.
+    return title, html.Div(table, style={'maxHeight': '435px', 'overflowY': 'auto'})
 
 
 @app.callback(
-    Output('debate-date-box', 'children'),
+    Output('upcoming-debate-dropdown', 'options'),
+    Output('upcoming-debate-dropdown', 'value'),
+    Input('debate-date-dropdown', 'value')
+)
+def update_petitions_for_date(selected_date):
+    if selected_date is None:
+        return [], None
+
+    matches = upcoming_debate_options[upcoming_debate_options['scheduled_debate_date'] == selected_date]
+    options = [
+        {'label': row['petition_title'], 'value': row['petition_id']}
+        for _, row in matches.iterrows()
+    ]
+    value = matches.iloc[0]['petition_id'] if len(matches) else None
+    return options, value
+
+
+@app.callback(
     Output('debate-total-votes-box', 'children'),
     Output('debate-constituency-votes-box', 'children'),
+    Output('debate-constituency-votes-label', 'children'),
+    Output('debate-pct-of-total-box', 'children'),
+    Output('debate-sig-per-pop-box', 'children'),
+    Output('debate-ranking-box', 'children'),
     Output('upcoming-debates-histogram', 'figure'),
     Input('upcoming-debate-dropdown', 'value'),
     Input('analytics-petition-dropdown', 'value')
 )
 def update_debate_section(petition_id, PCON24CD):
-    df = petitions_df[petitions_df['petition_id'] == petition_id]
+    no_constituency = html.Span("Select a constituency", style={'color': '#C0392B'})
+    if petition_id is None:
+        return "Select a petition", "Select a petition", "Votes in selected constituency", "Select a petition", "Select a petition", "Select a petition", go.Figure()
 
-    debate_date = df['scheduled_debate_date'].iloc[0]
-    debate_date_str = pd.to_datetime(debate_date).strftime('%d %b %Y') if pd.notna(debate_date) else 'Not scheduled'
+    df = petitions_df[petitions_df['petition_id'] == petition_id]
 
     total_votes = df['total_signature_count'].iloc[0]
 
-    constituency_votes = (
-        df.loc[df['PCON24CD'] == PCON24CD, 'signature_count'].iloc[0] if PCON24CD is not None else None
+    constituency_row = df.loc[df['PCON24CD'] == PCON24CD] if PCON24CD is not None else None
+
+    constituency_votes = constituency_row['signature_count'].iloc[0] if constituency_row is not None else None
+    sig_per_pop = constituency_row['sig_per_pop'].iloc[0] if constituency_row is not None else None
+    sig_rank = constituency_row['sig_rank_raw'].iloc[0] if constituency_row is not None else None
+
+    constituency_label = (
+        f"Votes in {pcon24cds.loc[pcon24cds['PCON24CD'] == PCON24CD, 'constituency_name'].iloc[0]}"
+        if PCON24CD is not None else "Votes in selected constituency"
     )
 
-    counts, bin_edges = np.histogram(df['signature_count'], bins=30)
+    counts, bin_edges = np.histogram(df['signature_count'], bins=30, range=(0, df['signature_count'].max()))
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     bin_widths = bin_edges[1:] - bin_edges[:-1]
+    bin_labels = [
+        f"{int(round(bin_edges[i]))} < no of sig ≤ {int(round(bin_edges[i + 1]))}"
+        for i in range(len(bin_edges) - 1)
+    ]
 
     bar_colors = ['#006548'] * len(counts)
     if constituency_votes is not None:
@@ -904,7 +974,12 @@ def update_debate_section(petition_id, PCON24CD):
         constituency_bin = min(max(constituency_bin, 0), len(counts) - 1)
         bar_colors[constituency_bin] = '#40a583'
 
-    fig = go.Figure(go.Bar(x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors))
+    fig = go.Figure(go.Bar(
+        x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors,
+        text=bin_labels, textposition='none',
+        hovertemplate='<br>&nbsp; &nbsp;%{y} constituencies &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;<br><extra></extra>',
+        hoverlabel=dict(bgcolor='white', font_color='#333')
+    ))
     fig.update_layout(
         xaxis_title='Number of signatures',
         yaxis_title='Number of constituencies',
@@ -916,13 +991,17 @@ def update_debate_section(petition_id, PCON24CD):
         ),
         paper_bgcolor='white',
         plot_bgcolor='white',
-        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13)),
-        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13)),
+        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True),
+        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True),
     )
+    fig.add_vline(x=df['median_signature_count'].iloc[0], line_width=2, line_color='#D55E00')
 
-    constituency_votes_str = f"{constituency_votes:,}" if constituency_votes is not None else "Select a constituency"
+    constituency_votes_str = f"{constituency_votes:,}" if constituency_votes is not None else no_constituency
+    pct_of_total_str = f"{(constituency_votes / total_votes) * 100:.2f}%" if constituency_votes is not None else no_constituency
+    sig_per_pop_str = f"{sig_per_pop:.2f}" if sig_per_pop is not None else no_constituency
+    ranking_str = f"{int(sig_rank)} of {TOTAL_CONSTITUENCIES}" if sig_rank is not None else no_constituency
 
-    return debate_date_str, f"{total_votes:,}", constituency_votes_str, fig
+    return f"{total_votes:,}", constituency_votes_str, constituency_label, pct_of_total_str, sig_per_pop_str, ranking_str, fig
 
 
 # ── All Petitions table ───────────────────────────────────
