@@ -486,6 +486,8 @@ up_and_coming_df = petitions_list[
 up_and_coming_df['petition_title_link'] = up_and_coming_df.apply(
     lambda r: f"[{r['petition_title']}]({r['petition_url']})", axis=1
 )
+up_and_coming_df['days_open'] = _days_open.loc[up_and_coming_df.index] + 1
+up_and_coming_df['avg_sig_per_day'] = (up_and_coming_df['total_signature_count'] / up_and_coming_df['days_open']).round(0)
 
 if up_and_coming_df.empty:
     up_and_coming_component = html.Div(
@@ -499,12 +501,14 @@ else:
         columnDefs=[
             {'field': 'petition_title_link', 'headerName': 'Petition', 'cellRenderer': 'markdown',
              'cellClass': 'petition-title-cell', 'sortable': False,
-             'flex': 2, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
-            {'field': 'opened_at', 'headerName': 'Date opened', 'flex': 1, 'minWidth': 110},
+             'flex': 2, 'minWidth': 180, 'wrapText': True, 'autoHeight': True},
+            {'field': 'days_open', 'headerName': 'Days opened', 'flex': 1, 'minWidth': 90, 'sort': 'asc'},
             {'field': 'total_signature_count', 'headerName': 'Total signatures',
-             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 130},
+             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 100},
+            {'field': 'avg_sig_per_day', 'headerName': 'Avg sig/day',
+             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 90},
         ],
-        defaultColDef={'sortable': True, 'resizable': True, 'wrapHeaderText': True, 'autoHeaderHeight': True},
+        defaultColDef={'sortable': True, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
         dashGridOptions={'domLayout': 'autoHeight', 'unSortIcon': True},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
@@ -637,12 +641,25 @@ app.layout = html.Div([
                         ], style={'flex': '0 0 38%', 'maxWidth': '38%'})
                     ], className="g-2"),
 
-                    # ── Up and coming petitions / Upcoming debates ────────────
+                    # ── Popular new petitions / Upcoming debates ────────────
                     dbc.Row([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5("Up and coming petitions", className="mb-3 text-center"),
+                                    html.Div([
+                                        html.H5("Popular new petitions", className="mb-0 me-1"),
+                                        html.Span("?", id="popular-petitions-info-icon", style={
+                                            'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
+                                            'width': '16px', 'height': '16px', 'borderRadius': '50%',
+                                            'border': '1px solid #6c757d', 'color': '#6c757d',
+                                            'fontSize': '11px', 'cursor': 'pointer'
+                                        }),
+                                        dbc.Tooltip(
+                                            "Petitions that have been open for less than a month but already have over 10,000 votes",
+                                            target="popular-petitions-info-icon",
+                                            placement="top"
+                                        )
+                                    ], className="mb-3 d-flex align-items-center justify-content-center"),
                                     up_and_coming_component
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
@@ -977,7 +994,7 @@ def update_debate_section(petition_id, PCON24CD):
     fig = go.Figure(go.Bar(
         x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors,
         text=bin_labels, textposition='none',
-        hovertemplate='<br>&nbsp; &nbsp;%{y} constituencies &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;<br><extra></extra>',
+        hovertemplate='&nbsp;<br>&nbsp; &nbsp;%{y} constituencies &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;<br>&nbsp;<extra></extra>',
         hoverlabel=dict(bgcolor='white', font_color='#333')
     ))
     fig.update_layout(
