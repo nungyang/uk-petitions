@@ -307,6 +307,56 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
     return html.Div(rows, style={'padding': '10px 20px'})
 
 
+def render_signature_histogram(df, median_value, highlight_value=None):
+    """Histogram of signature_count across constituencies for one petition, with a
+    dotted vertical line at median_value and, if highlight_value is given, the bin
+    containing it picked out in a lighter shade of green.
+    """
+    max_val = int(df['signature_count'].max())
+    bin_width = max(1, -(-max_val // 30))  # ceil(max_val / 30), so bin edges land on whole numbers
+    num_bins = max(1, -(-max_val // bin_width))  # ceil(max_val / bin_width)
+    bin_edges = np.arange(num_bins + 1) * bin_width
+    counts, bin_edges = np.histogram(df['signature_count'], bins=bin_edges)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    bin_widths = bin_edges[1:] - bin_edges[:-1]
+    bin_labels = [
+        f"{int(round(bin_edges[i]))} < no of sig ≤ {int(round(bin_edges[i + 1]))}"
+        for i in range(len(bin_edges) - 1)
+    ]
+
+    bar_colors = ['#006548'] * len(counts)
+    if highlight_value is not None:
+        highlight_bin = np.searchsorted(bin_edges, highlight_value, side='right') - 1
+        highlight_bin = min(max(highlight_bin, 0), len(counts) - 1)
+        bar_colors[highlight_bin] = '#40a583'
+
+    fig = go.Figure(go.Bar(
+        x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors,
+        text=bin_labels, textposition='none',
+        hovertemplate='&nbsp;<br>&nbsp; &nbsp;%{y} constituencies &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;<br>&nbsp;<extra></extra>',
+        hoverlabel=dict(bgcolor='white', font_color='#333')
+    ))
+    fig.update_layout(
+        hovermode='x',
+        xaxis_title='Number of signatures',
+        yaxis_title='Number of constituencies',
+        margin={'r': 20, 't': 20, 'l': 60, 'b': 40},
+        bargap=0.05,
+        font=dict(
+            family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+            size=12, color='#333'
+        ),
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True, showspikes=False,
+                   tick0=0, dtick=max(1, round(max_val / 6)), tickformat=',d'),
+        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True, showspikes=False),
+    )
+    fig.add_vline(x=median_value, line_width=2, line_color='#D55E00')
+
+    return fig
+
+
 ####################
 #### App setup  ####
 ####################
@@ -369,7 +419,8 @@ app.index_string = '''
 
             /* hovermode='x' on the histogram shows a small floating axis-value label
                (e.g. "514.98") near the x-axis on hover, independent of showspikes; hide it. */
-            #upcoming-debates-histogram .axistext {
+            #upcoming-debates-histogram .axistext,
+            #petition-histogram .axistext {
                 display: none !important;
             }
 
@@ -500,8 +551,6 @@ app.index_string = '''
 
 # ── Layout components ─────────────────────────────────────
 
-mytitle = dcc.Markdown(children='', style={'margin': '10px 0 0 0'})
-
 mygraph = dcc.Graph(
     figure={},
     config={
@@ -510,7 +559,7 @@ mygraph = dcc.Graph(
         'displaylogo': False,
         'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
     },
-    style={'height': '85vh'}
+    style={'height': '72vh'}
 )
 
 # ── Static components ─────────────────────────────────────
@@ -571,14 +620,15 @@ else:
 
 petition_options = petitions_list[['petition_id', 'petition_title']].copy()
 
-petition_dropdown = dbc.RadioItems(
+petition_dropdown = dcc.Dropdown(
     id='petition-dropdown',
     options=[
         {'label': row['petition_title'], 'value': row['petition_id']}
         for _, row in petition_options.iterrows()
     ],
     value=petition_options.iloc[0]['petition_id'],
-    style={'maxHeight': '80vh', 'overflowY': 'auto', 'padding': '10px'}
+    clearable=False,
+    style={'width': '100%'}
 )
 
 constituency_dropdown = dcc.Dropdown(
@@ -626,9 +676,9 @@ debate_date_dropdown = dcc.Dropdown(
 
 page_nav = dbc.Nav([
     dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True),
+    dbc.NavLink("Petition overview", id='tab-2-navlink', active=False),
     dbc.NavLink("All data", id='tab-3-navlink', active=False),
-    dbc.NavLink("Map", id='tab-2-navlink', active=False),
-], pills=True)
+], pills=True, className="gap-4")
 
 banner = dbc.Navbar(
     dbc.Container([
@@ -638,7 +688,7 @@ banner = dbc.Navbar(
             dbc.Col(html.Label("Constituency:", className="text-white mb-0 me-2"), width="auto"),
             dbc.Col(constituency_dropdown, width="auto"),
         ], align="center", className="g-2 flex-nowrap"),
-    ], fluid=True, style={'paddingRight': '32px'}),
+    ], fluid=True, style={'paddingLeft': '34px', 'paddingRight': '32px'}),
     color="primary",
     dark=True,
 )
@@ -771,53 +821,73 @@ app.layout = html.Div([
             ]),
 
             dcc.Tab(value='tab-2', children=[
-                dbc.Row([
-                    dbc.Col([
-                        html.H5("Select a Petition", className="mb-3"),
-                        petition_dropdown
-                    ], style={
-                        'backgroundColor': '#f8f9fa',
-                        'padding': '20px',
-                        'borderRight': '2px solid #dee2e6',
-                        'minWidth': '400px',
-                        'maxWidth': '400px'
-                    }),
-                    dbc.Col([
-                        dbc.Row([mytitle], className="g-0", style={'marginBottom': '0'}),
-                        dbc.Row([
-                            dbc.Col([
-                                dcc.Loading(
-                                    id="loading",
-                                    type="circle",
-                                    children=[mygraph]
-                                )
-                            ], width=8),
-                            dbc.Col([
-                                dbc.Card([
-                                    dbc.CardBody([
-                                        html.H6("Total Signatures", className="text-white mb-2"),
-                                        html.H3(id='total-sigs', className="mb-0 text-white")
-                                    ])
-                                ], className="mb-3 shadow", color="primary", inverse=True,
-                                   style={'borderRadius': '15px'}),
-                                dbc.Card([
-                                    dbc.CardBody([
-                                        html.H6("Scheduled debate date", className="text-white mb-2"),
-                                        html.H3(id='sch-debate-date', className="mb-0 text-white")
-                                    ])
-                                ], className="mb-3 shadow", color="info", inverse=True,
-                                   style={'borderRadius': '15px'}),
-                                dbc.Card([
-                                    dbc.CardBody([
-                                        html.H6("Constituency with most signatures", className="text-white mb-2"),
-                                        html.H3(id='highest-count-con', className="mb-0 text-white")
-                                    ])
-                                ], className="mb-3 shadow", color="success", inverse=True,
-                                   style={'borderRadius': '15px'}),
-                            ], width=3)
-                        ])
-                    ], style={'flex': '1'})
-                ], style={'minHeight': '80vh'})
+                html.Div([
+
+                    dbc.Row([
+                        dbc.Col(
+                            html.Label("Select a Petition:", className="fw-bold mb-0"),
+                            width="auto", className="d-flex align-items-center"
+                        ),
+                        dbc.Col(petition_dropdown, width=6),
+                    ], className="mb-3 g-2 align-items-center"),
+
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Total no. of signatures", className="text-muted",
+                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px',
+                                                   'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                    html.Div(html.H5(id='total-sigs', className="mb-0"),
+                                             style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                            ], className="shadow-sm mb-2", style={'borderRadius': '10px'}),
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Scheduled debate date", className="text-muted",
+                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px',
+                                                   'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                    html.Div(html.H5(id='sch-debate-date', className="mb-0"),
+                                             style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                            ], className="shadow-sm mb-2", style={'borderRadius': '10px'}),
+                            dbc.Card([
+                                dbc.CardBody([
+                                    html.H6("Constituency with most signatures", className="text-muted",
+                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px',
+                                                   'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                    html.Div(html.H5(id='highest-count-con', className="mb-0"),
+                                             style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                            ], className="shadow-sm", style={'borderRadius': '10px'}),
+                        ], width=2),
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    dcc.Graph(
+                                        id='petition-histogram',
+                                        style={'height': '72vh'},
+                                        config={'displayModeBar': False}
+                                    )
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm h-100"
+                            )
+                        ], width=5),
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    dcc.Loading(
+                                        id="loading",
+                                        type="circle",
+                                        children=[mygraph]
+                                    )
+                                ], className="pt-2 pb-2"),
+                                className="shadow-sm h-100"
+                            )
+                        ], width=5),
+                    ], className="g-2")
+
+                ], style={'padding': '20px'})
             ]),
 
             dcc.Tab(value='tab-3', children=[
@@ -1024,42 +1094,7 @@ def update_debate_section(petition_id, PCON24CD):
         if PCON24CD is not None else "No. of sigs in selected constituency"
     )
 
-    counts, bin_edges = np.histogram(df['signature_count'], bins=30, range=(0, df['signature_count'].max()))
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    bin_widths = bin_edges[1:] - bin_edges[:-1]
-    bin_labels = [
-        f"{int(round(bin_edges[i]))} < no of sig ≤ {int(round(bin_edges[i + 1]))}"
-        for i in range(len(bin_edges) - 1)
-    ]
-
-    bar_colors = ['#006548'] * len(counts)
-    if constituency_votes is not None:
-        constituency_bin = np.searchsorted(bin_edges, constituency_votes, side='right') - 1
-        constituency_bin = min(max(constituency_bin, 0), len(counts) - 1)
-        bar_colors[constituency_bin] = '#40a583'
-
-    fig = go.Figure(go.Bar(
-        x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors,
-        text=bin_labels, textposition='none',
-        hovertemplate='&nbsp;<br>&nbsp; &nbsp;%{y} constituencies &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;<br>&nbsp;<extra></extra>',
-        hoverlabel=dict(bgcolor='white', font_color='#333')
-    ))
-    fig.update_layout(
-        hovermode='x',
-        xaxis_title='Number of signatures',
-        yaxis_title='Number of constituencies',
-        margin={'r': 20, 't': 20, 'l': 60, 'b': 40},
-        bargap=0.05,
-        font=dict(
-            family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-            size=12, color='#333'
-        ),
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True, showspikes=False),
-        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True, showspikes=False),
-    )
-    fig.add_vline(x=df['median_signature_count'].iloc[0], line_width=2, line_color='#D55E00')
+    fig = render_signature_histogram(df, df['median_signature_count'].iloc[0], constituency_votes)
 
     paren_style = {'display': 'block', 'marginTop': '6px', 'fontSize': '14px', 'fontWeight': 'normal', 'color': '#888'}
 
@@ -1181,13 +1216,14 @@ def update_all_petitions_table(PCON24CD):
 
 @app.callback(
     Output(mygraph, 'figure'),
-    Output(mytitle, 'children'),
+    Output('petition-histogram', 'figure'),
     Output('total-sigs', 'children'),
     Output('sch-debate-date', 'children'),
     Output('highest-count-con', 'children'),
-    Input('petition-dropdown', 'value')
+    Input('petition-dropdown', 'value'),
+    Input('analytics-petition-dropdown', 'value')
 )
-def update_graph(petition_id):
+def update_graph(petition_id, PCON24CD):
     callback_start = time.time()
 
     cached_data = get_petition_data(petition_id)
@@ -1195,7 +1231,6 @@ def update_graph(petition_id):
     df = pd.DataFrame(cached_data, columns=petitions_df.columns)
     print(f"Time to retrieve and process petition data: {time.time() - callback_start:.4f}s")
 
-    petition_title = df['petition_title'].iloc[0] if len(df) > 0 else "No data"
     total_signatures = df['signature_count'].sum()
 
     sch_debate_date = df['scheduled_debate_date'].iloc[0] if 'scheduled_debate_date' in df.columns else None
@@ -1204,6 +1239,10 @@ def update_graph(petition_id):
     max_row = df.loc[df['signature_count'].idxmax()]
     highest_count_con = max_row['constituency_name']
     highest_count = max_row['signature_count']
+
+    constituency_row = df.loc[df['PCON24CD'] == PCON24CD] if PCON24CD is not None else None
+    constituency_votes = constituency_row['signature_count'].iloc[0] if constituency_row is not None else None
+    histogram_fig = render_signature_histogram(df, df['median_signature_count'].iloc[0], constituency_votes)
 
     max_color = petition_quantiles.get(petition_id, df['signature_count'].max())
 
@@ -1230,23 +1269,40 @@ def update_graph(petition_id):
 
     fig.update_geos(
         visible=False,
-        projection_scale=0.8,
+        projection_scale=0.9,
         center=dict(lat=54.5, lon=-3),
         lataxis_range=[48, 60],
         lonaxis_range=[-10, 4]
     )
 
+    # The colour scale is capped at the 95th percentile (max_color) rather than the true
+    # max so a single outlier constituency doesn't wash out the rest of the map, but the
+    # top tick should still read as the true highest count rather than that cap value.
+    # Intermediate ticks are only kept when they land exactly on a whole number, rather
+    # than being rounded (which could otherwise show duplicate labels).
+    raw_tickvals = np.linspace(0, max_color, 5)
+    is_whole = np.isclose(raw_tickvals, np.round(raw_tickvals))
+    is_whole[-1] = True  # always keep the top tick so it can show the true max
+
+    colorbar_tickvals = raw_tickvals[is_whole]
+    colorbar_ticktext = [f"{int(round(v)):,}" for v in colorbar_tickvals]
+    colorbar_ticktext[-1] = f"{highest_count:,}"
+
     fig.update_layout(
-        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        margin={"r": 0, "t": 0, "l": 0, "b": 20},
         uirevision='constant',
         coloraxis_colorbar=dict(
-            title="Signatures",
+            title="No. of sigs",
+            orientation="h",
             thickness=15,
             len=0.7,
-            x=1.0,
-            xanchor="left",
-            y=0.5,
-            yanchor="middle"
+            x=0.5,
+            xanchor="center",
+            y=0,
+            yanchor="top",
+            tickmode="array",
+            tickvals=colorbar_tickvals,
+            ticktext=colorbar_ticktext
         )
     )
 
@@ -1254,7 +1310,7 @@ def update_graph(petition_id):
 
     return (
         fig,
-        '# ' + petition_title,
+        histogram_fig,
         f"{total_signatures:,}",
         debate_date_str,
         f"{highest_count_con} ({highest_count:,})"
