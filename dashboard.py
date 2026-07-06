@@ -344,9 +344,41 @@ app.index_string = '''
                 line-height: 1.3;
             }
 
+            /* Same treatment as .sig-ratio-cell, but with extra space between the
+               ranking value and its "(Top N%)" category line. */
+            .rank-ratio-cell {
+                text-align: center;
+                display: flex !important;
+                align-items: flex-start;
+                justify-content: center;
+                padding-top: 8px;
+            }
+            .rank-ratio-cell .agGrid-Markdown div {
+                line-height: 1.75;
+            }
+
+            /* AG-Grid's own CSS gives .ag-center-cols-viewport a min-height: 100%, which
+               (in domLayout=autoHeight mode, where the viewport's own height is derived
+               from its content) creates a circular/self-inflating height once wrapText
+               row heights come in shorter than the grid's initial estimate — leaving a
+               large empty gap below the last row. Break that feedback loop here. */
+            #top5-percent-datatable .ag-center-cols-viewport,
+            #top5-percent-datatable .ag-center-cols-container {
+                min-height: unset !important;
+            }
+
+            /* hovermode='x' on the histogram shows a small floating axis-value label
+               (e.g. "514.98") near the x-axis on hover, independent of showspikes; hide it. */
+            #upcoming-debates-histogram .axistext {
+                display: none !important;
+            }
+
             /* Center the "Ranking"/"Signatures" column headers in the top 5% table */
             .ag-header-center .ag-header-cell-label {
                 justify-content: center;
+            }
+            .ag-header-center .ag-header-cell-text {
+                text-align: center;
             }
 
             /* Constituency dropdown placeholder */
@@ -519,11 +551,14 @@ else:
             {'field': 'petition_title_link', 'headerName': 'Petition', 'cellRenderer': 'markdown',
              'cellClass': 'petition-title-cell', 'sortable': False,
              'flex': 2, 'minWidth': 180, 'wrapText': True, 'autoHeight': True},
-            {'field': 'days_open', 'headerName': 'Days opened', 'flex': 1, 'minWidth': 90, 'sort': 'asc', 'sortable': False},
-            {'field': 'total_signature_count', 'headerName': 'Total signatures',
-             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 100},
-            {'field': 'avg_sig_per_day', 'headerName': 'Avg sig/day',
-             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 90},
+            {'field': 'days_open', 'headerName': 'Days opened', 'flex': 0.6, 'minWidth': 88, 'sort': 'asc', 'sortable': False,
+             'headerClass': 'ag-header-center', 'cellStyle': {'textAlign': 'center'}},
+            {'field': 'total_signature_count', 'headerName': 'Total no. of sigs',
+             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 0.7, 'minWidth': 92,
+             'headerClass': 'ag-header-center', 'cellStyle': {'textAlign': 'center'}},
+            {'field': 'avg_sig_per_day', 'headerName': 'Avg no. of sig per day',
+             'valueFormatter': {'function': "d3.format(',')(params.value)"}, 'flex': 1, 'minWidth': 115,
+             'headerClass': 'ag-header-center', 'cellStyle': {'textAlign': 'center'}},
         ],
         defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
         dashGridOptions={'domLayout': 'autoHeight'},
@@ -679,10 +714,10 @@ app.layout = html.Div([
                                         )
                                     ], className="mb-3 d-flex align-items-center justify-content-center"),
                                     up_and_coming_component
-                                ], className="pt-2 pb-2"),
+                                ], className="pt-2 pb-2", style={'paddingLeft': '8px', 'paddingRight': '8px'}),
                                 className="shadow-sm h-100"
                             )
-                        ], style={'flex': '0 0 40%', 'maxWidth': '40%'}),
+                        ], style={'flex': '0 0 39%', 'maxWidth': '39%'}),
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
@@ -690,48 +725,46 @@ app.layout = html.Div([
                                         html.H5("Upcoming debate(s) on", className="mb-0 me-2"),
                                         debate_date_dropdown
                                     ], className="mb-2 d-flex align-items-center justify-content-center"),
-                                    html.Div(upcoming_debate_dropdown, className="mb-2"),
+                                    html.Div(upcoming_debate_dropdown, className="mb-4"),
                                     dbc.Row([
                                         dbc.Col([
                                             dbc.Card([
                                                 dbc.CardBody([
-                                                    html.H6("Signatures in selected constituency", id='debate-constituency-votes-label', className="text-muted mb-1",
-                                                            style={'fontSize': '12px', 'minHeight': '44px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}),
+                                                    html.H6("No. of sigs in selected constituency", id='debate-constituency-votes-label', className="text-muted",
+                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
                                                     html.Div(html.H5(id='debate-constituency-votes-box', className="mb-0"),
                                                              style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 16px'})
-                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                        ], style={'flex': '0 0 33.33%', 'maxWidth': '33.33%'}),
-                                        dbc.Col([
+                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                                            ], className="shadow-sm mb-2", style={'borderRadius': '10px'}),
                                             dbc.Card([
                                                 dbc.CardBody([
-                                                    html.H6("Ranking based on no. of sigs", className="text-muted mb-1",
-                                                            style={'fontSize': '12px', 'minHeight': '44px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}),
+                                                    html.H6("Ranking based on no. of sigs", className="text-muted",
+                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
                                                     html.Div(html.H5(id='debate-ranking-box', className="mb-0"),
                                                              style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 16px'})
-                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                        ], style={'flex': '0 0 33.33%', 'maxWidth': '33.33%'}),
-                                        dbc.Col([
+                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                                            ], className="shadow-sm mb-2", style={'borderRadius': '10px'}),
                                             dbc.Card([
                                                 dbc.CardBody([
-                                                    html.H6("Signatures per 1,000 population", className="text-muted mb-1",
-                                                            style={'fontSize': '12px', 'minHeight': '44px', 'display': 'flex', 'alignItems': 'flex-start', 'justifyContent': 'center'}),
+                                                    html.H6("Signatures per 1,000 population", className="text-muted",
+                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
                                                     html.Div(html.H5(id='debate-sig-per-pop-box', className="mb-0"),
                                                              style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 16px'})
-                                            ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                        ], style={'flex': '0 0 33.33%', 'maxWidth': '33.33%'}),
+                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                                            ], className="shadow-sm", style={'borderRadius': '10px'}),
+                                        ], style={'flex': '0 0 22%', 'maxWidth': '22%'}),
+                                        dbc.Col([
+                                            dcc.Graph(
+                                                id='upcoming-debates-histogram',
+                                                style={'height': '350px'},
+                                                config={'displayModeBar': False}
+                                            )
+                                        ], style={'flex': '0 0 78%', 'maxWidth': '78%'}),
                                     ], className="g-2 mb-2"),
-                                    dcc.Graph(
-                                        id='upcoming-debates-histogram',
-                                        style={'height': '350px'},
-                                        config={'displayModeBar': False}
-                                    )
                                 ], className="pt-2 pb-2"),
                                 className="shadow-sm h-100"
                             )
-                        ], style={'flex': '0 0 60%', 'maxWidth': '60%'})
+                        ], style={'flex': '0 0 61%', 'maxWidth': '61%'})
                     ], className="g-2 mt-2"),
 
                 ], style={'padding': '20px'})
@@ -873,7 +906,7 @@ def update_top5_raw(PCON24CD):
 )
 def update_top5_percent(PCON24CD):
     if PCON24CD is None:
-        return "Petitions where your constituency has top 5% of votes", html.Div(
+        return "Petitions where your constituency ranks in top 5% of constituencies based on no. of sigs", html.Div(
             NO_CONSTITUENCY_MESSAGE,
             style={
                 'padding': '10px 20px', 'color': '#C0392B', 'fontSize': '16px', 'textAlign': 'center',
@@ -882,7 +915,7 @@ def update_top5_percent(PCON24CD):
         )
 
     constituency_name = pcon24cds.loc[pcon24cds['PCON24CD'] == PCON24CD, 'constituency_name'].iloc[0]
-    title = f"Petitions where {constituency_name} has top 5% of votes"
+    title = f"Petitions where {constituency_name} ranks in top 5% of constituencies based on no. of sigs"
 
     df = petitions_df[
         (petitions_df['PCON24CD'] == PCON24CD) &
@@ -907,8 +940,9 @@ def update_top5_percent(PCON24CD):
     df['sig_ratio_display'] = df.apply(
         lambda r: f"{r['signature_count']:,} of  \n{r['total_signature_count']:,} sigs", axis=1
     )
-
-    rank_format = {'function': f"params.value + ' of {TOTAL_CONSTITUENCIES}'"}
+    df['rank_display'] = df.apply(
+        lambda r: f"{r['sig_rank_raw']} of {TOTAL_CONSTITUENCIES}", axis=1
+    )
 
     table = dag.AgGrid(
         id='top5-percent-datatable',
@@ -917,15 +951,19 @@ def update_top5_percent(PCON24CD):
             {'field': 'petition_title_link', 'headerName': 'Petition', 'cellRenderer': 'markdown',
              'cellClass': 'petition-title-cell',
              'flex': 2, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
-            {'field': 'sig_rank_raw', 'headerName': 'Ranking', 'flex': 1, 'minWidth': 110,
-             'valueFormatter': rank_format, 'headerClass': 'ag-header-center',
-             'cellStyle': {'textAlign': 'center'}},
-            {'field': 'sig_ratio_display', 'headerName': 'Signatures', 'cellRenderer': 'markdown',
+            {'field': 'rank_display', 'headerName': 'Ranking based on no. of sigs', 'cellRenderer': 'markdown',
+             'cellClass': 'rank-ratio-cell', 'headerClass': 'ag-header-center',
+             'flex': 1, 'minWidth': 110, 'wrapText': True, 'autoHeight': True},
+            {'field': 'sig_ratio_display', 'headerName': 'No. of sigs in constituency', 'cellRenderer': 'markdown',
              'cellClass': 'sig-ratio-cell', 'headerClass': 'ag-header-center',
              'flex': 1.4, 'minWidth': 150, 'wrapText': True, 'autoHeight': True},
         ],
-        defaultColDef={'sortable': False, 'resizable': False},
-        dashGridOptions={'headerHeight': 32, 'domLayout': 'autoHeight'},
+        defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
+        dashGridOptions={
+            'domLayout': 'autoHeight',
+            'onRowDataUpdated': {'function': 'setTimeout(function(){ params.api.resetRowHeights(); }, 50)'},
+            'onFirstDataRendered': {'function': 'setTimeout(function(){ params.api.resetRowHeights(); }, 50)'},
+        },
         dangerously_allow_code=True,
         className='ag-theme-alpine',
         style={'width': '100%'},
@@ -968,7 +1006,7 @@ def update_petitions_for_date(selected_date):
 def update_debate_section(petition_id, PCON24CD):
     no_constituency = html.Span("Select a constituency", style={'color': '#C0392B'})
     if petition_id is None:
-        return "", "Signatures in selected constituency", "", "", go.Figure()
+        return "", "No. of sigs in selected constituency", "", "", go.Figure()
 
     df = petitions_df[petitions_df['petition_id'] == petition_id]
 
@@ -982,8 +1020,8 @@ def update_debate_section(petition_id, PCON24CD):
     sig_percentile = constituency_row['percentile_rank_raw'].iloc[0] if constituency_row is not None else None
 
     constituency_label = (
-        f"Signatures in {pcon24cds.loc[pcon24cds['PCON24CD'] == PCON24CD, 'constituency_name'].iloc[0]}"
-        if PCON24CD is not None else "Signatures in selected constituency"
+        f"No. of sigs in {pcon24cds.loc[pcon24cds['PCON24CD'] == PCON24CD, 'constituency_name'].iloc[0]}"
+        if PCON24CD is not None else "No. of sigs in selected constituency"
     )
 
     counts, bin_edges = np.histogram(df['signature_count'], bins=30, range=(0, df['signature_count'].max()))
@@ -1007,6 +1045,7 @@ def update_debate_section(petition_id, PCON24CD):
         hoverlabel=dict(bgcolor='white', font_color='#333')
     ))
     fig.update_layout(
+        hovermode='x',
         xaxis_title='Number of signatures',
         yaxis_title='Number of constituencies',
         margin={'r': 20, 't': 20, 'l': 60, 'b': 40},
@@ -1017,22 +1056,24 @@ def update_debate_section(petition_id, PCON24CD):
         ),
         paper_bgcolor='white',
         plot_bgcolor='white',
-        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True),
-        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True),
+        xaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True, showspikes=False),
+        yaxis=dict(gridcolor='#e9ecef', zerolinecolor='#dee2e6', title_font=dict(size=15, color='#555'), tickfont=dict(size=13), fixedrange=True, showspikes=False),
     )
     fig.add_vline(x=df['median_signature_count'].iloc[0], line_width=2, line_color='#D55E00')
 
+    paren_style = {'display': 'block', 'marginTop': '6px', 'fontSize': '14px', 'fontWeight': 'normal', 'color': '#888'}
+
     constituency_votes_str = (
         html.Span([
-            f"{constituency_votes:,} of", html.Br(), f"{total_votes:,} sigs", html.Br(),
-            f"({(constituency_votes / total_votes) * 100:.2f}%)"
+            f"{constituency_votes:,} of", html.Br(), f"{total_votes:,} sigs",
+            html.Span(f"({(constituency_votes / total_votes) * 100:.2f}%)", style=paren_style)
         ])
         if constituency_votes is not None else no_constituency
     )
     sig_per_pop_str = f"{sig_per_pop:.2f}" if sig_per_pop is not None else no_constituency
     category = percentile_category(sig_percentile)
     ranking_str = (
-        html.Span([f"{int(sig_rank)} of {TOTAL_CONSTITUENCIES}"] + ([html.Br(), f"({category})"] if category else []))
+        html.Span([f"{int(sig_rank)} of {TOTAL_CONSTITUENCIES}"] + ([html.Span(f"({category})", style=paren_style)] if category else []))
         if sig_rank is not None else no_constituency
     )
 
