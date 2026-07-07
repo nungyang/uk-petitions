@@ -57,3 +57,9 @@ As noted above, the dashboard uses data from other sources as well.
 |----------|----------|----------|----------|----------|
 | Westminster Parliamentary Constituencies (July 2024) Names and Codes in the UK (V2) | geojson | [ONS, Westminster Parliamentary Constituencies July 2024](https://www.data.gov.uk/dataset/ceccb29c-3a8c-4d4e-a1eb-f3088dfc8cc6/westminster-parliamentary-constituencies-july-2024-boundaries-uk-bfe1) | Downloaded on 9 June 2026 | To create choropleth |
 | Constituency population estimates | csv | [NOMIS, Population estimates - local authority based by single year of age](https://www.nomisweb.co.uk/datasets/pestsyoala) | Downloaded on 7 June 2026 | To calculate signatures per 1000 population |
+
+## Updates to webscraping
+Below is a log to track changes made to web scraping to help understand any discrepancies or inconsistencies in data collection.
+| Date | Description of change |
+|----------|----------|
+| 7 July 2026 | Changed time that GitHub actions runs web scraping from 6am to 2am. This is because there can be some delay in the time that Github actions runs the code and it was actually pulling the data at around 11am and 12pm. I wanted the data to be updated before someone accesses it in the morning.| |
