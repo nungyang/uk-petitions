@@ -199,7 +199,7 @@ PERCENTILE_CATEGORY_FORMAT = {'function': (
 # Displays a rank (e.g. sig_rank_raw / sig_per_pop_rank) as "N of {TOTAL_CONSTITUENCIES}"
 # while the underlying cell value stays numeric, so ascending/descending sort works.
 RANK_DISPLAY_FORMAT = {'function': (
-    f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES}'"
+    f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES} constituencies'"
 )}
 
 # Displays a months_open_rank (0-3) as its label, while the underlying cell value
@@ -352,6 +352,7 @@ def render_signature_histogram(df, median_value, highlight_value=None):
     ))
     fig.update_layout(
         hovermode='x',
+        dragmode=False,
         xaxis_title='Number of signatures',
         yaxis_title='Number of constituencies',
         margin={'r': 20, 't': 20, 'l': 60, 'b': 40},
@@ -520,6 +521,11 @@ app.index_string = '''
                 line-height: 1.3 !important;
             }
 
+            /* Group headers are left-aligned by default; centre this one specifically */
+            .centered-group-header .ag-header-group-cell-label {
+                justify-content: center;
+            }
+
             /* Merged "select a constituency" placeholder cell shown once, centred
                across the six per-constituency columns, when none is selected. */
             .no-constituency-message,
@@ -536,12 +542,55 @@ app.index_string = '''
                 background-color: #f2f2f2 !important;
             }
 
+            /* wrapText cells anchor their content to the top of the row by default,
+               which leaves "To be considered for debate" sitting at the top of any
+               row made taller by a longer petition title in another column — centre
+               it vertically instead. */
+            .debate-cell {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+
+            /* ag-Grid's default line-height for wrapped cell text is driven by row
+               height, which spaces wrapped lines out much more than a normal
+               paragraph (same issue as .sig-ratio-cell/.rank-ratio-cell above) —
+               tighten it for every wrapText column in this table. */
+            #all-petitions-datatable .ag-cell-wrap-text {
+                line-height: 1.3 !important;
+            }
+
+            /* Non-wrapped cells sit a constant 12px below the cell's top edge
+               regardless of row height (a quirk of ag-Grid's default line-height,
+               not actual vertical centering). wrapText cells default to flush-top
+               instead, so match that same 12px gap here — except .debate-cell,
+               which is deliberately centred and would conflict with a fixed offset. */
+            #all-petitions-datatable .ag-cell-wrap-text:not(.debate-cell) {
+                padding-top: 12px;
+            }
+
             /* Vertical dividers between columns — kept even though resizable is off,
                since the resize handle isn't the only thing that should show a border. */
             #all-petitions-datatable .ag-cell,
             #all-petitions-datatable .ag-header-cell,
             #all-petitions-datatable .ag-header-group-cell {
                 border-right: 1px solid #dde2eb !important;
+            }
+
+            /* ag-Grid's default cell-focus outline adds a 1px border on all four sides
+               of the focused cell. The right edge already has its own divider border
+               (set above) with nothing adjacent to double up against, so it stays a
+               clean 1px — but the top/left/bottom edges each sit right on top of a
+               neighbour's existing border (the row separator, the previous cell's own
+               divider), so the focus border stacks with it and reads as thicker. Drop
+               the focus border on those three sides entirely so nothing is added on
+               top of what's already there; the right edge's permanent divider (still
+               !important above) is left alone. */
+            #all-petitions-datatable .ag-cell-focus:not(.ag-cell-range-selected):focus-within {
+                border-top: none !important;
+                border-left: none !important;
+                border-bottom: none !important;
+                outline: none !important;
             }
 
             /* No internal grid lines between the six per-constituency columns
@@ -563,15 +612,39 @@ app.index_string = '''
                 background-color: white;
             }
 
-            /* Hint that the current-page number in the pagination panel can be
-               clicked and typed into directly (see script below) */
-            #all-petitions-datatable .ag-paging-page-summary-panel-current-page {
-                cursor: pointer;
-                text-decoration: underline dotted;
-            }
-            #all-petitions-datatable .ag-paging-page-summary-panel-current-page input {
-                width: 36px;
+            /* Show the current-page number in the pagination panel as a text-box, hinting
+               it can be clicked and typed into directly (see script below) */
+            #all-petitions-datatable .ag-paging-page-summary-panel .ag-paging-number[data-ref="lbCurrent"] {
+                display: inline-block;
+                box-sizing: border-box;
+                width: 38px;
+                padding: 1px 0;
+                border: 1px solid #adb5bd;
+                border-radius: 4px;
+                background: #fff;
+                cursor: text;
                 text-align: center;
+                /* ag-Grid's own CSS sets line-height:0 on this element, which collapses
+                   its height; override so the box has real height at rest. */
+                line-height: 18px;
+            }
+            #all-petitions-datatable .ag-paging-page-summary-panel .ag-paging-number[data-ref="lbCurrent"] input {
+                width: 100%;
+                height: 100%;
+                box-sizing: border-box;
+                text-align: center;
+                border: none;
+                outline: none;
+                background: transparent;
+                padding: 0;
+                font: inherit;
+                color: inherit;
+                -moz-appearance: textfield;
+            }
+            #all-petitions-datatable .ag-paging-page-summary-panel .ag-paging-number[data-ref="lbCurrent"] input::-webkit-outer-spin-button,
+            #all-petitions-datatable .ag-paging-page-summary-panel .ag-paging-number[data-ref="lbCurrent"] input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
             }
         </style>
     </head>
@@ -632,7 +705,7 @@ app.index_string = '''
             (function() {
                 document.addEventListener('click', function(e) {
                     var target = e.target.closest(
-                        '#all-petitions-datatable .ag-paging-page-summary-panel-current-page'
+                        '#all-petitions-datatable .ag-paging-page-summary-panel .ag-paging-number[data-ref="lbCurrent"]'
                     );
                     if (!target || target.querySelector('input')) { return; }
 
@@ -653,14 +726,28 @@ app.index_string = '''
                     input.focus();
                     input.select();
 
+                    // If the target page equals the page already showing, ag-Grid treats
+                    // paginationGoToPage as a no-op and never redraws this panel, which
+                    // would otherwise leave our injected <input> stuck in place with no
+                    // page number showing. Restore the plain text ourselves in that case.
+                    // `settled` also guards against the blur that fires when this restore
+                    // removes the (still-focused) input from the DOM — without it, that
+                    // implicit blur would re-run commit() and re-navigate after Escape.
+                    var settled = false;
+                    function finish(page) {
+                        if (settled) { return; }
+                        settled = true;
+                        api.paginationGoToPage(page - 1);
+                        setTimeout(function() {
+                            if (target.contains(input)) {
+                                target.textContent = String(api.paginationGetCurrentPage() + 1);
+                            }
+                        }, 0);
+                    }
+
                     function commit() {
                         var page = parseInt(input.value, 10);
-                        if (!isNaN(page)) {
-                            page = Math.min(Math.max(page, 1), totalPages);
-                            api.paginationGoToPage(page - 1);
-                        } else {
-                            api.paginationGoToPage(currentPage - 1);
-                        }
+                        finish(isNaN(page) ? currentPage : Math.min(Math.max(page, 1), totalPages));
                     }
 
                     input.addEventListener('click', function(ev) { ev.stopPropagation(); });
@@ -669,7 +756,7 @@ app.index_string = '''
                         if (ev.key === 'Enter') {
                             commit();
                         } else if (ev.key === 'Escape') {
-                            api.paginationGoToPage(currentPage - 1);
+                            finish(currentPage);
                         }
                     });
                 });
@@ -938,7 +1025,7 @@ app.layout = html.Div([
                                             dcc.Graph(
                                                 id='upcoming-debates-histogram',
                                                 style={'height': '350px'},
-                                                config={'displayModeBar': False}
+                                                config={'displayModeBar': False, 'doubleClick': False, 'scrollZoom': False}
                                             )
                                         ], style={'flex': '0 0 78%', 'maxWidth': '78%'}),
                                     ], className="g-2 mb-2"),
@@ -1026,13 +1113,8 @@ app.layout = html.Div([
 
                     dbc.Row([
                         dbc.Col([
-                            dbc.Card(
-                                dbc.CardBody([
-                                    html.H5("All Petitions", className="mb-3 text-center"),
-                                    html.Div(id='all-petitions-table')
-                                ], className="pt-2 pb-2"),
-                                className="shadow-sm"
-                            )
+                            html.H5("All Petitions", className="mb-3 text-center"),
+                            html.Div(id='all-petitions-table')
                         ])
                     ])
 
@@ -1201,13 +1283,26 @@ def update_petitions_for_date(selected_date):
     Output('debate-sig-per-pop-box', 'children'),
     Output('debate-ranking-box', 'children'),
     Output('upcoming-debates-histogram', 'figure'),
+    Output('upcoming-debates-histogram', 'config'),
     Input('upcoming-debate-dropdown', 'value'),
     Input('analytics-petition-dropdown', 'value')
 )
 def update_debate_section(petition_id, PCON24CD):
     no_constituency = html.Span("Select a constituency", style={'color': '#C0392B'})
+    histogram_config = {'displayModeBar': False, 'doubleClick': False, 'scrollZoom': False}
     if petition_id is None:
-        return "", "No. of sigs in selected constituency", "", "", go.Figure()
+        blank_fig = go.Figure()
+        blank_fig.update_layout(
+            dragmode=False,
+            xaxis={'visible': False, 'fixedrange': True},
+            yaxis={'visible': False, 'fixedrange': True},
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            margin={'r': 0, 't': 0, 'l': 0, 'b': 0}
+        )
+        # staticPlot removes Plotly's drag layer entirely, so the cursor stays a
+        # normal arrow over the blank area instead of showing the drag/pan cursor.
+        return "", "No. of sigs in selected constituency", "", "", blank_fig, {**histogram_config, 'staticPlot': True}
 
     df = petitions_df[petitions_df['petition_id'] == petition_id]
 
@@ -1243,7 +1338,7 @@ def update_debate_section(petition_id, PCON24CD):
         if sig_rank is not None else no_constituency
     )
 
-    return constituency_votes_str, constituency_label, sig_per_pop_str, ranking_str, fig
+    return constituency_votes_str, constituency_label, sig_per_pop_str, ranking_str, fig, histogram_config
 
 
 # ── All Petitions table ───────────────────────────────────
@@ -1350,14 +1445,14 @@ def update_all_petitions_table(PCON24CD):
     SPAN_GROUP_HEADER_CLASS = 'span-group-header' if PCON24CD is None else ''
 
     signature_count_coldef = (
-        {'field': 'signature_count', 'headerName': 'Constituency signatures',
+        {'field': 'signature_count', 'headerName': 'No. of sigs in constituency',
          'cellRenderer': 'markdown', 'cellClass': f'no-constituency-message {SPAN_GROUP_CELL_CLASS}',
          'headerClass': SPAN_GROUP_HEADER_CLASS,
          'valueGetter': {'function': f"{_is_target_row} ? 'Select a constituency  \\n(see top right)' : ''"},
          'colSpan': {'function': f"{_is_target_row} ? 6 : 1"},
          'flex': 1, 'minWidth': 160}
         if PCON24CD is None else
-        {'field': 'signature_count', 'headerName': 'Constituency signatures',
+        {'field': 'signature_count', 'headerName': 'No. of sigs in constituency',
          'valueFormatter': number_format, 'flex': 1, 'minWidth': 160}
     )
 
@@ -1379,28 +1474,32 @@ def update_all_petitions_table(PCON24CD):
                 'valueFormatter': number_format, 'flex': 1, 'minWidth': 130},
             {'field': 'debate_sort_key', 'headerName': 'Scheduled debate', 'flex': 1, 'minWidth': 180,
              'valueFormatter': {'function': "params.data.debate_display || ''"},
-             'cellClass': {'function': "params.data.is_past_debate ? 'past-debate-date' : ''"}},
+             'cellClass': {'function': "'debate-cell' + (params.data.is_past_debate ? ' past-debate-date' : '')"},
+             'wrapText': True, 'autoHeight': True},
             {
-                'headerName': 'No. of sigs',
+                'headerName': 'Metrics based on no. of sigs',
+                'headerClass': 'centered-group-header',
                 'children': [
                     signature_count_coldef,
                     {'field': 'sig_rank_raw', 'headerName': 'Ranking based on no. of sigs',
                      'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
-                     'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170},
-                    {'field': 'percentile_rank_raw', 'headerName': 'Percentile ranking (counts)', 'flex': 1, 'minWidth': 150,
+                     'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
+                     'wrapText': True, 'autoHeight': True},
+                    {'field': 'percentile_rank_raw', 'headerName': 'Ranking as percentile', 'flex': 1, 'minWidth': 150,
                      'valueFormatter': PERCENTILE_CATEGORY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
                      'headerClass': SPAN_GROUP_HEADER_CLASS},
                 ]
             },
             {
-                'headerName': 'Avg no. of sigs per 1000 population',
+                'headerName': 'Metrics based on avg no. of sigs per 1000 population',
                 'children': [
                     {'field': 'sig_per_pop', 'headerName': 'Avg no. of sigs per 1000 pop', 'flex': 1, 'minWidth': 150,
                      'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
-                    {'field': 'sig_per_pop_rank', 'headerName': 'Ranking based on sig/pop',
+                    {'field': 'sig_per_pop_rank', 'headerName': 'Ranking based on no. of sigs/pop',
                      'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
-                     'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170},
-                    {'field': 'percentile_rank_pop', 'headerName': 'Percentile ranking (sig per 1000)', 'flex': 1, 'minWidth': 170,
+                     'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
+                     'wrapText': True, 'autoHeight': True},
+                    {'field': 'percentile_rank_pop', 'headerName': 'Ranking as percentile', 'flex': 1, 'minWidth': 170,
                      'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS,
                      'valueFormatter': PERCENTILE_CATEGORY_FORMAT},
                 ]
