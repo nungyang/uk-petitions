@@ -1,3 +1,28 @@
+/* "?" info icons spliced into a few "All data" column headers (see
+   make_header_info_icon_template in dashboard.py) — hovering one shows a
+   dbc.Tooltip. eText and the icon share one inline-flow wrapper (rather than
+   being separate flex siblings) so the icon wraps along with the text and
+   lands right after the last word, instead of floating at the vertical
+   center of the whole wrapped header. */
+.header-title-wrap {
+    display: inline;
+}
+.header-info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 4px;
+    border-radius: 50%;
+    border: 1px solid #6c757d;
+    color: #6c757d;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
 /* Tighten wrapped-line spacing in the AG Grid petition title column */
 .petition-title-cell.ag-cell,
 .petition-title-cell .agGrid-Markdown,
@@ -44,6 +69,11 @@
 /* Hover effect */
 .form-check:hover {
     background-color: #f0f0f0;
+}
+
+/* Pagination footer reads "1 to 20 of 2,342" by default — clarify the unit. */
+#all-petitions-datatable .ag-paging-row-summary-panel-number[data-ref="lbRecordCount"]::after {
+    content: ' petitions';
 }
 
 /* Selected petition - highlighted */
