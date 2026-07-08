@@ -105,11 +105,21 @@ def get_petitions_data():
 
 
 def get_population_data():
+    # England & Wales + Northern Ireland population estimates, combined into one
+    # lookup. Scotland isn't included yet — the population file for it uses
+    # Scottish Parliament (Holyrood) constituency codes (S16...) rather than the
+    # Westminster ones (S14...) this app keys everything on, so it can't be joined
+    # on PCON24CD until a correctly-coded file is available.
     if ENV == 'local':
-        local_path = script_dir / 'cached_data' / 'pop_estimate_2021.csv'
         print("Loading population data from local cache...")
-        return pd.read_csv(local_path)
-    return load_csv('static data/pop_estimate_2021.csv')
+        main_df = pd.read_csv(script_dir / 'cached_data' / 'pop_estimate_2021.csv')
+        ni_df = pd.read_csv(script_dir / 'cached_data' / 'pop_estimate_2021_ni.csv')
+    else:
+        main_df = load_csv('static data/pop_estimate_2021.csv')
+        ni_df = load_csv('static data/pop_estimate_2021_ni.csv')
+    # Column order differs between the two files; concat aligns by column name, not
+    # position, so that's fine as long as the names match (they do).
+    return pd.concat([main_df, ni_df], ignore_index=True)
 
 
 @lru_cache(maxsize=128)
@@ -139,6 +149,9 @@ print("Done loading data.")
 petition_ids = petitions_list[['petition_id']].drop_duplicates()
 pcon24cds = petitions_count[['PCON24CD', 'constituency_name']].drop_duplicates()
 TOTAL_CONSTITUENCIES = len(pcon24cds)
+# sig_per_pop_rank is only computed over constituencies that have a population
+# estimate (see the left-join below) — a smaller pool than TOTAL_CONSTITUENCIES.
+TOTAL_CONSTITUENCIES_WITH_POP = pop_df['PCON24CD'].nunique()
 
 skeleton_df = petition_ids.merge(pcon24cds, how='cross')
 
@@ -173,6 +186,8 @@ petitions_df = petitions_list.merge(petitions_count, on='petition_id', how='left
 # If total count is less than 10,000, then remove ranking
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_raw'] = np.nan
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_pop'] = np.nan
+petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'sig_rank_raw'] = np.nan
+petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'sig_per_pop_rank'] = np.nan
 
 petition_quantiles = (
     petitions_df
@@ -201,6 +216,73 @@ PERCENTILE_CATEGORY_FORMAT = {'function': (
 RANK_DISPLAY_FORMAT = {'function': (
     f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES} constituencies'"
 )}
+
+# Same as RANK_DISPLAY_FORMAT, but for sig_per_pop_rank specifically — that rank
+# only covers constituencies with a population estimate, a smaller pool than
+# TOTAL_CONSTITUENCIES, so it needs its own denominator.
+RANK_DISPLAY_FORMAT_POP = {'function': (
+    f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES_WITH_POP} constituencies'"
+)}
+
+# "?" info icons appended to the "Ranking based on no. of sigs" / ".../sigs/pop"
+# headers, explaining via a dbc.Tooltip (added alongside the table below) why a
+# petition's ranking can be blank — it's suppressed for petitions with under 10,000
+# signatures (see the total_signature_count <= 10000 filtering above). A dbc.Tooltip
+# is used instead of a native title attribute because native tooltips are unreliable —
+# some browsers/embedded webviews cancel them if the hovered element's ancestors mutate
+# (as AG Grid's header cells do while re-laying-out after a constituency is selected).
+# The icon itself still needs AG Grid's header template override (the default
+# agColumnHeader template, docs' "Header Templates" page, with one extra <span> spliced
+# in) since headerName is plain text and can't hold markup.
+RANK_INFO_TEXT = "Ranking only shows for petitions with 10,000 or more signatures"
+SIG_RANK_RAW_INFO_ICON_ID = 'sig-rank-raw-info-icon'
+SIG_PER_POP_RANK_INFO_ICON_ID = 'sig-per-pop-rank-info-icon'
+# The sig/pop ranking specifically also excludes Scotland (no population data for
+# it yet — see get_population_data), on top of the 10,000-signature rule both
+# rank columns share. Two <br>s (not one) so it reads as a separate paragraph.
+SIG_PER_POP_RANK_INFO_TEXT = [
+    RANK_INFO_TEXT,
+    html.Br(), html.Br(),
+    "This ranking excludes constituencies in Scotland because relevant population data is not available.",
+]
+
+
+def make_header_info_icon_template(icon_id):
+    return f'''
+<div class="ag-cell-label-container" role="presentation">
+  <span data-ref="eMenu" class="ag-header-icon ag-header-cell-menu-button"></span>
+  <span data-ref="eFilterButton" class="ag-header-icon ag-header-cell-filter-button"></span>
+  <div data-ref="eLabel" class="ag-header-cell-label" role="presentation">
+    <span class="header-title-wrap"><span data-ref="eText" class="ag-header-cell-text"></span><span class="header-info-icon" id="{icon_id}">?</span></span>
+    <span data-ref="eFilter" class="ag-header-icon ag-filter-icon"></span>
+    <span data-ref="eSortOrder" class="ag-header-icon ag-sort-order"></span>
+    <span data-ref="eSortAsc" class="ag-header-icon ag-sort-ascending-icon"></span>
+    <span data-ref="eSortDesc" class="ag-header-icon ag-sort-descending-icon"></span>
+    <span data-ref="eSortNone" class="ag-header-icon ag-sort-none-icon"></span>
+  </div>
+</div>
+'''
+
+
+SIG_RANK_RAW_HEADER_TEMPLATE = make_header_info_icon_template(SIG_RANK_RAW_INFO_ICON_ID)
+SIG_PER_POP_RANK_HEADER_TEMPLATE = make_header_info_icon_template(SIG_PER_POP_RANK_INFO_ICON_ID)
+
+# Same pattern for the "Scheduled debate date" header — explains the 100,000-signature
+# debate threshold and the greyed-out-past-debate styling (see .past-debate-date).
+# Two <br>s (not one) between the sentences so they read as separate paragraphs
+# rather than two lines of the same one.
+SCHEDULED_DEBATE_INFO_TEXT = [
+    "Petitions with 100,000 signatures or more are considered for debate by the Petitions Committee.",
+    html.Br(), html.Br(),
+    "Debates that have already taken place are greyed out",
+]
+SCHEDULED_DEBATE_INFO_ICON_ID = 'scheduled-debate-info-icon'
+SCHEDULED_DEBATE_HEADER_TEMPLATE = make_header_info_icon_template(SCHEDULED_DEBATE_INFO_ICON_ID)
+
+# Same pattern for the "Months open" header.
+MONTHS_OPEN_INFO_TEXT = "Petitions are open for 6 months"
+MONTHS_OPEN_INFO_ICON_ID = 'months-open-info-icon'
+MONTHS_OPEN_HEADER_TEMPLATE = make_header_info_icon_template(MONTHS_OPEN_INFO_ICON_ID)
 
 # Displays a months_open_rank (0-3) as its label, while the underlying cell value
 # stays numeric, so ascending/descending sort follows chronological order.
@@ -428,7 +510,9 @@ app.index_string = '''
                row heights come in shorter than the grid's initial estimate — leaving a
                large empty gap below the last row. Break that feedback loop here. */
             #top5-percent-datatable .ag-center-cols-viewport,
-            #top5-percent-datatable .ag-center-cols-container {
+            #top5-percent-datatable .ag-center-cols-container,
+            #all-petitions-datatable .ag-center-cols-viewport,
+            #all-petitions-datatable .ag-center-cols-container {
                 min-height: unset !important;
             }
 
@@ -462,6 +546,13 @@ app.index_string = '''
                 display: none;
             }
 
+            /* dbc.NavLink has no href (tab switching is driven by a callback off its
+               id, not real navigation), so browsers don't apply the usual link
+               pointer cursor and fall back to the text-select cursor instead. */
+            #tab-1-navlink, #tab-2-navlink, #tab-3-navlink {
+                cursor: pointer;
+            }
+
             /* Native dcc.Tabs header is replaced by the nav in the top banner; hide it
                but keep dcc.Tabs itself so its tab-switching/content mount-unmount logic
                (and the Map tab's plotly graph sizing) still works. */
@@ -493,11 +584,14 @@ app.index_string = '''
                 background-color: #cfe2ff !important;
             }
 
-            /* Wrap ag-Grid header text only at word boundaries, never mid-word or ellipsis */
+            /* Wrap ag-Grid header text only at word boundaries, never mid-word or ellipsis.
+               pre-line (rather than normal) also respects literal newlines in headerName
+               — used by the "Scheduled debate date" header to force "date" onto its own
+               line, so the trailing "?" icon lands next to it instead of wrapping alone. */
             .ag-header-cell-text {
                 word-break: normal !important;
                 overflow-wrap: normal !important;
-                white-space: normal !important;
+                white-space: pre-line !important;
                 overflow: visible !important;
                 text-overflow: clip !important;
             }
@@ -593,11 +687,11 @@ app.index_string = '''
                 outline: none !important;
             }
 
-            /* No internal grid lines between the six per-constituency columns
-               (they read as one grouped block, not separate data columns) while
-               no constituency is selected. */
-            #all-petitions-datatable .span-group-cell,
-            #all-petitions-datatable .span-group-header {
+            /* No internal grid lines between the six per-constituency columns'
+               body cells (they read as one grouped block, not separate data
+               columns) while no constituency is selected — but the header row
+               keeps its normal dividers between the six column titles. */
+            #all-petitions-datatable .span-group-cell {
                 border-right: none !important;
             }
             /* Row divider is drawn on .ag-row (spans the full row width), not per
@@ -656,6 +750,14 @@ app.index_string = '''
             {%renderer%}
         </footer>
         <script>
+            // Shared by the page-number-input feature and the pagination-button
+            // handler below — jumps the page to the top, instantly (Bootstrap sets
+            // html{scroll-behavior:smooth}, which would otherwise turn this into a
+            // visible animated scroll).
+            function scrollAllPetitionsTableToTop() {
+                window.scrollTo({top: 0, left: 0, behavior: 'instant'});
+            }
+
             // Some dropdowns hide their pre-filled value label on reopen (see CSS above);
             // this injects a real placeholder onto the now-empty search input for each one
             // so it reads e.g. "Search for constituency" instead of just being blank.
@@ -737,6 +839,12 @@ app.index_string = '''
                     function finish(page) {
                         if (settled) { return; }
                         settled = true;
+                        // Only a genuine navigation to a *different* page should jump
+                        // to the top — re-committing the page already showing (e.g.
+                        // clicking in, then clicking away or pressing Escape) must not.
+                        if (page !== currentPage) {
+                            scrollAllPetitionsTableToTop();
+                        }
                         api.paginationGoToPage(page - 1);
                         setTimeout(function() {
                             if (target.contains(input)) {
@@ -759,6 +867,39 @@ app.index_string = '''
                             finish(currentPage);
                         }
                     });
+                });
+            })();
+
+            // The "All Petitions" grid uses domLayout:'autoHeight', so its own height
+            // changes with however many rows land on the new page — that reflow
+            // shifts everything below it even though window.scrollY hasn't moved.
+            // Rather than try to preserve the user's scroll position across that
+            // reflow (which turned out to fight AG Grid's own multi-pass internal
+            // row rendering — see git history for that approach and why it was
+            // dropped: it either produced a visible jolt, or hiding the grid to mask
+            // the jolt made the Next/Prev buttons themselves unclickable, since
+            // visibility:hidden removes an element from hit-testing and those buttons
+            // are inside the grid), jump to the top of the table on every page change
+            // instead, so the new page is always read from its first row.
+            //
+            // Scoped to clicks on the first/previous/next/last buttons specifically —
+            // an earlier version watched the pagination panel's DOM for *any* change
+            // (via MutationObserver on the displayed page number's text), which was
+            // simple but too broad: clicking the current page number to edit it (see
+            // the page-number-input feature above) clears that text as part of
+            // swapping in an <input>, and opening the "Page Size" picker mutates the
+            // same subtree too — both got misread as "the page changed" and jumped
+            // to the top despite the page not actually changing.
+            (function() {
+                document.addEventListener('click', function(e) {
+                    var button = e.target.closest(
+                        '#all-petitions-datatable .ag-paging-page-summary-panel [data-ref="btFirst"], ' +
+                        '#all-petitions-datatable .ag-paging-page-summary-panel [data-ref="btPrevious"], ' +
+                        '#all-petitions-datatable .ag-paging-page-summary-panel [data-ref="btNext"], ' +
+                        '#all-petitions-datatable .ag-paging-page-summary-panel [data-ref="btLast"]'
+                    );
+                    if (!button || button.classList.contains('ag-disabled')) { return; }
+                    scrollAllPetitionsTableToTop();
                 });
             })();
         </script>
@@ -1113,7 +1254,7 @@ app.layout = html.Div([
 
                     dbc.Row([
                         dbc.Col([
-                            html.H5("All Petitions", className="mb-3 text-center"),
+                            html.H5("All open petitions", className="mb-3 text-center"),
                             html.Div(id='all-petitions-table')
                         ])
                     ])
@@ -1335,7 +1476,7 @@ def update_debate_section(petition_id, PCON24CD):
     category = percentile_category(sig_percentile)
     ranking_str = (
         html.Span([f"{int(sig_rank)} of {TOTAL_CONSTITUENCIES}"] + ([html.Span(f"({category})", style=paren_style)] if category else []))
-        if sig_rank is not None else no_constituency
+        if pd.notna(sig_rank) else no_constituency
     )
 
     return constituency_votes_str, constituency_label, sig_per_pop_str, ranking_str, fig, histogram_config
@@ -1382,7 +1523,7 @@ def update_all_petitions_table(PCON24CD):
     df['is_past_debate'] = df['scheduled_debate_date'].notna() & (df['scheduled_debate_date'] < today)
     df['debate_display'] = df.apply(
         lambda r: r['scheduled_debate_date'] if pd.notna(r['scheduled_debate_date'])
-        else ('To be considered for debate' if r['total_signature_count'] >= 100000 else None),
+        else ('To be considered for debate' if r['total_signature_count'] >= 100000 else 'N/A'),
         axis=1
     )
     # Numeric sort key so actual dates always sort before "To be considered for
@@ -1402,11 +1543,17 @@ def update_all_petitions_table(PCON24CD):
 
     if PCON24CD is not None:
         df['signature_count'] = df['signature_count'].astype(int)
-        df['sig_rank_raw'] = df['sig_rank_raw'].astype(int)
-        df['sig_per_pop_rank'] = df['sig_per_pop_rank'].astype(int)
+        # sig_rank_raw is NaN for petitions with <= 10,000 total signatures (rank
+        # suppressed above) and sig_per_pop_rank is additionally NaN for constituencies
+        # with no population estimate (Scotland — see TOTAL_CONSTITUENCIES_WITH_POP).
+        # astype(int) can't hold NaN, so cast element-wise and leave those as None
+        # instead of crashing.
+        df['sig_rank_raw'] = df['sig_rank_raw'].apply(lambda x: int(x) if pd.notna(x) else None)
+        df['sig_per_pop_rank'] = df['sig_per_pop_rank'].apply(lambda x: int(x) if pd.notna(x) else None)
     df['percentile_rank_raw'] = df['percentile_rank_raw'].round(1)
     df['percentile_rank_pop'] = df['percentile_rank_pop'].round(1)
     df['sig_per_pop'] = df['sig_per_pop'].round(2)
+    df['sig_prop_of_total'] = df['signature_count'] / df['total_signature_count'] * 100
 
     table_df = df[[
         'petition_title_link',
@@ -1416,6 +1563,7 @@ def update_all_petitions_table(PCON24CD):
         'signature_count',
         'sig_rank_raw',
         'percentile_rank_raw',
+        'sig_prop_of_total',
         'sig_per_pop',
         'sig_per_pop_rank',
         'percentile_rank_pop',
@@ -1428,7 +1576,7 @@ def update_all_petitions_table(PCON24CD):
     PAGE_SIZE = 20
 
     # When no constituency is selected, a row near the top of each page carries the
-    # merged placeholder message (colSpan across all 6 per-constituency columns);
+    # merged placeholder message (colSpan across all 7 per-constituency columns);
     # every other row's cell in that column renders blank. dash_ag_grid compiles
     # colSpan/valueGetter as an expression-bodied arrow function (params) => (CODE) —
     # no statements/var/return allowed — so this has to be one composed expression.
@@ -1437,9 +1585,9 @@ def update_all_petitions_table(PCON24CD):
     _target_row = f"({_page_start} + {_NEAR_TOP_OFFSET})"
     _is_target_row = f"(params.node.rowIndex === {_target_row})"
 
-    # When no constituency is selected, the six per-constituency columns lose their
+    # When no constituency is selected, the seven per-constituency columns lose their
     # internal grid lines (both the vertical divider between them and the row line
-    # under them) so they read as one blank panel instead of six empty columns;
+    # under them) so they read as one blank panel instead of seven empty columns;
     # once a constituency is picked they get their normal gridlines back.
     SPAN_GROUP_CELL_CLASS = 'span-group-cell' if PCON24CD is None else ''
     SPAN_GROUP_HEADER_CLASS = 'span-group-header' if PCON24CD is None else ''
@@ -1449,7 +1597,7 @@ def update_all_petitions_table(PCON24CD):
          'cellRenderer': 'markdown', 'cellClass': f'no-constituency-message {SPAN_GROUP_CELL_CLASS}',
          'headerClass': SPAN_GROUP_HEADER_CLASS,
          'valueGetter': {'function': f"{_is_target_row} ? 'Select a constituency  \\n(see top right)' : ''"},
-         'colSpan': {'function': f"{_is_target_row} ? 6 : 1"},
+         'colSpan': {'function': f"{_is_target_row} ? 7 : 1"},
          'flex': 1, 'minWidth': 160}
         if PCON24CD is None else
         {'field': 'signature_count', 'headerName': 'No. of sigs in constituency',
@@ -1469,13 +1617,15 @@ def update_all_petitions_table(PCON24CD):
              'flex': 1.6, 'minWidth': 220, 'wrapText': True, 'autoHeight': True},
             {'field': 'opened_at', 'headerName': 'Date opened', 'flex': 0.9, 'minWidth': 125},
             {'field': 'months_open_rank', 'headerName': 'Months open', 'flex': 0.8, 'minWidth': 110,
-             'valueFormatter': MONTHS_OPEN_FORMAT},
-            {'field': 'total_signature_count', 'headerName': 'Total signatures',
+             'valueFormatter': MONTHS_OPEN_FORMAT,
+             'headerComponentParams': {'template': MONTHS_OPEN_HEADER_TEMPLATE}},
+            {'field': 'total_signature_count', 'headerName': 'Total no. of sigs',
                 'valueFormatter': number_format, 'flex': 1, 'minWidth': 130},
-            {'field': 'debate_sort_key', 'headerName': 'Scheduled debate', 'flex': 1, 'minWidth': 180,
+            {'field': 'debate_sort_key', 'headerName': 'Scheduled debate\ndate', 'flex': 0.65, 'minWidth': 140,
              'valueFormatter': {'function': "params.data.debate_display || ''"},
              'cellClass': {'function': "'debate-cell' + (params.data.is_past_debate ? ' past-debate-date' : '')"},
-             'wrapText': True, 'autoHeight': True},
+             'wrapText': True, 'autoHeight': True,
+             'headerComponentParams': {'template': SCHEDULED_DEBATE_HEADER_TEMPLATE}},
             {
                 'headerName': 'Metrics based on no. of sigs',
                 'headerClass': 'centered-group-header',
@@ -1484,21 +1634,27 @@ def update_all_petitions_table(PCON24CD):
                     {'field': 'sig_rank_raw', 'headerName': 'Ranking based on no. of sigs',
                      'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
                      'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
-                     'wrapText': True, 'autoHeight': True},
+                     'wrapText': True, 'autoHeight': True,
+                     'headerComponentParams': {'template': SIG_RANK_RAW_HEADER_TEMPLATE}},
                     {'field': 'percentile_rank_raw', 'headerName': 'Ranking as percentile', 'flex': 1, 'minWidth': 150,
                      'valueFormatter': PERCENTILE_CATEGORY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
                      'headerClass': SPAN_GROUP_HEADER_CLASS},
+                    {'field': 'sig_prop_of_total', 'headerName': 'No. of sigs as prop of all sigs (%)', 'flex': 1, 'minWidth': 170,
+                     'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
+                     'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
                 ]
             },
             {
-                'headerName': 'Metrics based on avg no. of sigs per 1000 population',
+                'headerName': 'Metrics based on avg no. of sigs',
+                'headerClass': 'centered-group-header',
                 'children': [
                     {'field': 'sig_per_pop', 'headerName': 'Avg no. of sigs per 1000 pop', 'flex': 1, 'minWidth': 150,
                      'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
                     {'field': 'sig_per_pop_rank', 'headerName': 'Ranking based on no. of sigs/pop',
-                     'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
+                     'valueFormatter': RANK_DISPLAY_FORMAT_POP, 'cellClass': SPAN_GROUP_CELL_CLASS,
                      'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
-                     'wrapText': True, 'autoHeight': True},
+                     'wrapText': True, 'autoHeight': True,
+                     'headerComponentParams': {'template': SIG_PER_POP_RANK_HEADER_TEMPLATE}},
                     {'field': 'percentile_rank_pop', 'headerName': 'Ranking as percentile', 'flex': 1, 'minWidth': 170,
                      'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS,
                      'valueFormatter': PERCENTILE_CATEGORY_FORMAT},
@@ -1514,7 +1670,13 @@ def update_all_petitions_table(PCON24CD):
         style={'width': '100%'},
     )
 
-    return html.Div(table, style={'overflowX': 'auto', 'width': '100%'})
+    return html.Div([
+        table,
+        dbc.Tooltip(RANK_INFO_TEXT, target=SIG_RANK_RAW_INFO_ICON_ID, placement='top'),
+        dbc.Tooltip(SIG_PER_POP_RANK_INFO_TEXT, target=SIG_PER_POP_RANK_INFO_ICON_ID, placement='top'),
+        dbc.Tooltip(SCHEDULED_DEBATE_INFO_TEXT, target=SCHEDULED_DEBATE_INFO_ICON_ID, placement='top'),
+        dbc.Tooltip(MONTHS_OPEN_INFO_TEXT, target=MONTHS_OPEN_INFO_ICON_ID, placement='top'),
+    ], style={'overflowX': 'auto', 'width': '100%'})
 
 
 # ── Map tab ───────────────────────────────────────────────
