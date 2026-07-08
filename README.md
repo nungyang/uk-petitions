@@ -8,7 +8,7 @@ Data on the number of signatures for each petition is publicly available at the 
 
 ## Key files
 * **daily web scraping.py**:
-    This script scrapes the UK Parliament petitions website for data on all open petitions (see below for more detail). It runs every day at 6:00am UTC [Note: this is 7:00am in the UK during BST and 6:00am outside BST]. Data pulls from each day are stored in an Amazon S3 bucket.
+    This script scrapes the UK Parliament petitions website for data on all open petitions (see below for more detail). It runs every day at 2:00am UTC [Note: this is 3:00am in the UK during BST and 2:00am outside BST]. Data pulls from each day are stored in an Amazon S3 bucket.
 * **dashboard.py**:
     This script uses the above-mentioned data as well as other sources to produce a dashboard, providing a constituency-level overview of open petitions.
 
