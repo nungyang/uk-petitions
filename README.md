@@ -56,7 +56,7 @@ As noted above, the dashboard uses data from other sources as well.
 | Data description | File type | Data source | Version | Use |
 |----------|----------|----------|----------|----------|
 | Westminster Parliamentary Constituencies (July 2024) Names and Codes in the UK (V2) | geojson | [ONS, Westminster Parliamentary Constituencies July 2024](https://www.data.gov.uk/dataset/ceccb29c-3a8c-4d4e-a1eb-f3088dfc8cc6/westminster-parliamentary-constituencies-july-2024-boundaries-uk-bfe1) | Downloaded on 9 June 2026 | To create choropleth |
-| Constituency population estimates | csv | [NOMIS, Population estimates - small area (2021 based) by single year of age - England and Wales]([https://www.nomisweb.co.uk/query/construct/summary.asp?menuopt=200&subcomp=](https://www.nomisweb.co.uk/datasets/pestoa2021))| Downloaded on 7 June 2026 | To calculate signatures per 1000 population |
+| Constituency population estimates | csv | [NOMIS, Population estimates - small area (2021 based) by single year of age - England and Wales](https://www.nomisweb.co.uk/datasets/pestoa2021) (All ages)| Downloaded on 7 June 2026 | To calculate signatures per 1000 population |
 
 ## Updates to webscraping
 Below is a log to track changes made to web scraping to help understand any discrepancies or inconsistencies in data collection.
