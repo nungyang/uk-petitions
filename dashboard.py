@@ -19,6 +19,7 @@ import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, Output, Input, html, ctx
+from flask import Response
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from dateutil.relativedelta import relativedelta
@@ -717,6 +718,12 @@ app = Dash(
     ],
 )
 server = app.server
+
+
+@server.route("/robots.txt")
+def robots_txt():
+    return Response("User-agent: *\nAllow: /\n", mimetype="text/plain")
+
 
 app.index_string = '''
 <!DOCTYPE html>
