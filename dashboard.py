@@ -144,6 +144,9 @@ petitions_count = petitions_count.merge(pop_df[['PCON24CD', 'pop']], on= ['PCON2
 
 # Adding column on sig per pop
 petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions_count['pop']) * 1000
+# 'pop' itself is only ever used to derive sig_per_pop above — nothing else reads it,
+# so there's no reason for it to keep taking up space in petitions_df from here on.
+petitions_count = petitions_count.drop(columns=['pop'])
 
 # Adding rank
 petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
