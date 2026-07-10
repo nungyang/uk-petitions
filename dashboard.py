@@ -5,6 +5,8 @@
 # ── Imports ───────────────────────────────────────────────
 
 import time
+_startup_t0 = time.time()
+
 import os
 import gc
 import textwrap
@@ -24,6 +26,8 @@ import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
+
+print(f"[startup] Imports done: {time.time() - _startup_t0:.2f}s")
 
 
 # ── Environment & AWS setup ───────────────────────────────
@@ -115,6 +119,7 @@ def get_petition_data(petition_id):
 
 print(f"Environment: {ENV}")
 
+_data_load_t0 = time.time()
 print("Loading petitions data...")
 petitions_list, petitions_count = get_petitions_data()
 
@@ -122,7 +127,9 @@ print("Loading population data...")
 pop_df = get_population_data()
 
 print("Done loading data.")
+print(f"[startup] S3/local data download: {time.time() - _data_load_t0:.2f}s")
 
+_merge_t0 = time.time()
 # Data pull has missing rows if value should actually be 0 so making sure they get filled with 0
 petition_ids = petitions_list[['petition_id']].drop_duplicates()
 pcon24cds = petitions_count[['PCON24CD', 'constituency_name']].drop_duplicates()
@@ -176,6 +183,8 @@ petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_ran
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_pop'] = np.nan
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'sig_rank_raw'] = np.nan
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'sig_per_pop_rank'] = np.nan
+
+print(f"[startup] Merge/cross-join/rank computation: {time.time() - _merge_t0:.2f}s")
 
 petition_quantiles = (
     petitions_df
@@ -1939,6 +1948,8 @@ def update_graph(petition_id, PCON24CD):
         top_constituencies_table
     )
 
+
+print(f"[startup] Total time until app is ready to serve: {time.time() - _startup_t0:.2f}s")
 
 if __name__ == '__main__':
     app.run(debug=(ENV == 'local'), port=8051)
