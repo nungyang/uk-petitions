@@ -713,8 +713,13 @@ app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.PULSE],
     suppress_callback_exceptions=True,
+    title="Overview of UK Petitions | UK Parliament Petitions Dashboard",
     meta_tags=[
         {"name": "google-site-verification", "content": "CQ5IOretsHhN61VXff8LDPQGm1v66PA8JXIAPbtgdy4"},
+        {
+            "name": "description",
+            "content": "Constituency level overview of UK Parliament petitions, including most popular petitions, number of signatures and ranking of petitions",
+        },
     ],
 )
 server = app.server
