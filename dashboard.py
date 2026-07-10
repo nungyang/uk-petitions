@@ -720,6 +720,17 @@ app = Dash(
             "name": "description",
             "content": "Constituency level overview of UK Parliament petitions, including most popular petitions, number of signatures and ranking of petitions",
         },
+        {"property": "og:title", "content": "Overview of UK Petitions | UK Parliament Petitions Dashboard"},
+        {
+            "property": "og:description",
+            "content": "Constituency level overview of UK Parliament petitions, including most popular petitions, number of signatures and ranking of petitions",
+        },
+        {"property": "og:type", "content": "website"},
+        {"property": "og:url", "content": "https://uk-petitions-dashboard.up.railway.app/"},
+        {
+            "property": "og:image",
+            "content": "https://uk-petitions-dashboard.up.railway.app/assets/dashboard_screenshot.png",
+        },
     ],
 )
 server = app.server
