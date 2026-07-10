@@ -708,7 +708,14 @@ def render_signature_histogram(df, median_value, highlight_value=None, constitue
 
 # ── Initialise app ────────────────────────────────────────
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.PULSE], suppress_callback_exceptions=True)
+app = Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.PULSE],
+    suppress_callback_exceptions=True,
+    meta_tags=[
+        {"name": "google-site-verification", "content": "CQ5IOretsHhN61VXff8LDPQGm1v66PA8JXIAPbtgdy4"},
+    ],
+)
 server = app.server
 
 app.index_string = '''
