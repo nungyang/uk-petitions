@@ -15,7 +15,6 @@ from functools import lru_cache
 import boto3
 import pandas as pd
 import numpy as np
-import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, Output, Input, html, ctx
@@ -57,28 +56,7 @@ def load_csv(filename):
     return df
 
 
-def load_geojson(filename):
-    s3_object = s3_client.get_object(Bucket=bucket, Key=filename)
-    gdf = gpd.read_file(s3_object['Body'])
-    return gdf
-
-
 # ── Cached data loaders ───────────────────────────────────
-
-@lru_cache(maxsize=1)
-def get_constituency_geojson():
-    if ENV == 'local':
-        local_path = script_dir / 'cached_data' / 'constituencies_july_2024.geojson'
-        print(f"Loading GeoJSON from local cache: {local_path}")
-        constituency_boundaries = gpd.read_file(local_path)
-    else:
-        constituency_boundaries = load_geojson(
-            'static data/constituencies_july_2024.geojson'
-        )
-    constituency_boundaries = constituency_boundaries[['PCON24CD', 'geometry']]
-    constituency_boundaries['geometry'] = constituency_boundaries['geometry'].simplify(0.005)
-    return constituency_boundaries
-
 
 def get_petitions_data():
     if ENV == 'local':
@@ -135,9 +113,6 @@ def get_petition_data(petition_id):
 # ── Data processing ───────────────────────────────────────
 
 print(f"Environment: {ENV}")
-
-print("Loading GeoJSON...")
-constituency_boundaries = get_constituency_geojson()
 
 print("Loading petitions data...")
 petitions_list, petitions_count = get_petitions_data()
