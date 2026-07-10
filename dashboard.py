@@ -6,6 +6,7 @@
 
 import time
 import os
+import gc
 import textwrap
 from io import BytesIO
 from pathlib import Path
@@ -143,6 +144,9 @@ petitions_count = petitions_count.merge(pop_df[['PCON24CD', 'pop']], on= ['PCON2
 
 # Adding column on sig per pop
 petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions_count['pop']) * 1000
+# 'pop' itself is only ever used to derive sig_per_pop above — nothing else reads it,
+# so there's no reason for it to keep taking up space in petitions_df from here on.
+petitions_count = petitions_count.drop(columns=['pop'])
 
 # Adding rank
 petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
@@ -159,6 +163,13 @@ petitions_list = petitions_list.merge(median_counts, on='petition_id', how='left
 
 # Merging petitions count to petitions list
 petitions_df = petitions_list.merge(petitions_count, on='petition_id', how='left')
+
+# petitions_count/skeleton_df/pop_df/petition_ids/median_counts were only ever
+# stepping stones toward petitions_df — everything they held is now merged in,
+# and nothing downstream reads them again, so free the memory rather than
+# leaving them resident as unused module-level globals for the app's lifetime.
+del petitions_count, skeleton_df, pop_df, petition_ids, median_counts
+gc.collect()
 
 # If total count is less than 10,000, then remove ranking
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_raw'] = np.nan
