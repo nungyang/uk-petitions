@@ -332,7 +332,7 @@ def _petitions_display_base(today):
     # numeric rank (0-3) rather than the display string so the grid's default sort
     # follows chronological order instead of alphabetical; MONTHS_OPEN_FORMAT maps
     # the rank back to its label.
-    df['opened_at'] = pd.to_datetime(df['opened_at'], dayfirst=True).dt.date
+    df['opened_at'] = pd.to_datetime(df['opened_at']).dt.date
     df['months_open_rank'] = df['opened_at'].apply(
         lambda d: 0 if today < d + relativedelta(months=1)
         else 1 if today < d + relativedelta(months=3)
@@ -342,7 +342,7 @@ def _petitions_display_base(today):
 
     # Debate date formatting. Petitions with 100,000+ signatures are considered
     # for a Commons debate even before one is actually scheduled.
-    df['scheduled_debate_date'] = pd.to_datetime(df['scheduled_debate_date'], dayfirst=True, errors='coerce').dt.date
+    df['scheduled_debate_date'] = pd.to_datetime(df['scheduled_debate_date'], errors='coerce').dt.date
     df['is_past_debate'] = df['scheduled_debate_date'].notna() & (df['scheduled_debate_date'] < today)
     df['debate_display'] = df.apply(
         lambda r: r['scheduled_debate_date'] if pd.notna(r['scheduled_debate_date'])
@@ -1193,7 +1193,7 @@ top5_overall_component = render_top5_bars(
 )
 
 _today = datetime.now().date()
-_days_open = (_today - pd.to_datetime(petitions_list['opened_at'], dayfirst=True).dt.date).apply(lambda d: d.days)
+_days_open = (_today - pd.to_datetime(petitions_list['opened_at']).dt.date).apply(lambda d: d.days)
 
 up_and_coming_df = petitions_list[
     (petitions_list['status'] == 'open') &
@@ -1267,7 +1267,7 @@ NO_CONSTITUENCY_MESSAGE = "Select a constituency from the dropdown (see top righ
 
 upcoming_debate_options = petitions_list[
     petitions_list['scheduled_debate_date'].notna() &
-    (pd.to_datetime(petitions_list['scheduled_debate_date'], dayfirst=True) >= pd.Timestamp.now().normalize())
+    (pd.to_datetime(petitions_list['scheduled_debate_date']) >= pd.Timestamp.now().normalize())
 ][['petition_id', 'petition_title', 'scheduled_debate_date']].drop_duplicates().sort_values('scheduled_debate_date')
 
 upcoming_debate_dropdown = dcc.Dropdown(
@@ -1283,7 +1283,7 @@ distinct_debate_dates = sorted(upcoming_debate_options['scheduled_debate_date'].
 debate_date_dropdown = dcc.Dropdown(
     id='debate-date-dropdown',
     options=[
-        {'label': pd.to_datetime(d, dayfirst=True).strftime('%d %b %Y'), 'value': d}
+        {'label': pd.to_datetime(d).strftime('%d %b %Y'), 'value': d}
         for d in distinct_debate_dates
     ],
     value=distinct_debate_dates[0] if len(distinct_debate_dates) else None,
