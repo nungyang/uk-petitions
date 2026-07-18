@@ -1572,7 +1572,7 @@ app.layout = html.Div([
                                     dcc.Graph(
                                         id='petition-histogram',
                                         style={'height': '100%', 'width': '100%'},
-                                        config={'displayModeBar': False}
+                                        config={'displayModeBar': False, 'responsive': True}
                                     )
                                 ], className="pt-2 pb-2",
                                     style={'display': 'flex', 'flexDirection': 'column', 'justifyContent': 'center', 'height': '100%', 'minHeight': '0'}),
