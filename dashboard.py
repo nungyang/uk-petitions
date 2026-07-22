@@ -90,21 +90,21 @@ def get_petitions_data():
 
 
 def get_population_data():
-    # England & Wales + Northern Ireland population estimates, combined into one
-    # lookup. Scotland isn't included yet — the population file for it uses
-    # Scottish Parliament (Holyrood) constituency codes (S16...) rather than the
-    # Westminster ones (S14...) this app keys everything on, so it can't be joined
-    # on PCON24CD until a correctly-coded file is available.
+    # England & Wales + Northern Ireland + Scotland population estimates, combined
+    # into one lookup. Scotland's file comes from a different source (NRS rather
+    # than ONS) but uses the same PCON24CD/pop column names as the other two.
     if ENV == 'local':
         print("Loading population data from local cache...")
         main_df = pd.read_csv(script_dir / 'cached_data' / 'pop_estimate_2021.csv')
         ni_df = pd.read_csv(script_dir / 'cached_data' / 'pop_estimate_2021_ni.csv')
+        sct_df = pd.read_csv(script_dir / 'cached_data' / 'pop_estimate_2021_sct.csv')
     else:
         main_df = load_csv('static data/pop_estimate_2021.csv')
         ni_df = load_csv('static data/pop_estimate_2021_ni.csv')
-    # Column order differs between the two files; concat aligns by column name, not
+        sct_df = load_csv('static data/pop_estimate_2021_sct.csv')
+    # Column order differs between the files; concat aligns by column name, not
     # position, so that's fine as long as the names match (they do).
-    return pd.concat([main_df, ni_df], ignore_index=True)
+    return pd.concat([main_df, ni_df, sct_df], ignore_index=True)
 
 
 @lru_cache(maxsize=128)
@@ -134,9 +134,12 @@ _merge_t0 = time.time()
 petition_ids = petitions_list[['petition_id']].drop_duplicates()
 pcon24cds = petitions_count[['PCON24CD', 'constituency_name']].drop_duplicates()
 TOTAL_CONSTITUENCIES = len(pcon24cds)
-# sig_per_pop_rank is only computed over constituencies that have a population
-# estimate (see the left-join below) — a smaller pool than TOTAL_CONSTITUENCIES.
-TOTAL_CONSTITUENCIES_WITH_POP = pop_df['PCON24CD'].nunique()
+# Scotland's population estimates come from a different source (NRS) than the
+# rest of the UK (ONS) — see get_population_data — so its constituencies are
+# ranked in their own pool for sig_per_pop_rank rather than pooled with the rest.
+_is_scotland_pop = pop_df['PCON24CD'].str.startswith('S')
+TOTAL_CONSTITUENCIES_SCOTLAND = pop_df.loc[_is_scotland_pop, 'PCON24CD'].nunique()
+TOTAL_CONSTITUENCIES_WITH_POP = pop_df.loc[~_is_scotland_pop, 'PCON24CD'].nunique()
 
 skeleton_df = petition_ids.merge(pcon24cds, how='cross')
 
@@ -155,11 +158,17 @@ petitions_count['sig_per_pop'] = (petitions_count['signature_count'] / petitions
 # so there's no reason for it to keep taking up space in petitions_df from here on.
 petitions_count = petitions_count.drop(columns=['pop'])
 
-# Adding rank
-petitions_count['sig_per_pop_rank'] = petitions_count.groupby('petition_id')['sig_per_pop'].rank(ascending=False, method='min')
+# Adding rank — Scotland is ranked in its own pool, separate from the rest of the
+# UK (see TOTAL_CONSTITUENCIES_SCOTLAND above), for both sig_per_pop_rank and its
+# percentile.
+petitions_count['is_scotland'] = petitions_count['PCON24CD'].str.startswith('S')
+petitions_count['sig_per_pop_rank'] = petitions_count.groupby(['petition_id', 'is_scotland'])['sig_per_pop'].rank(ascending=False, method='min')
 petitions_count['sig_rank_raw'] = petitions_count.groupby('petition_id')['signature_count'].rank(ascending=False, method='min')
 petitions_count['percentile_rank_raw'] = (100 - (petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100)).round(1)
-petitions_count['percentile_rank_pop'] = (100 - (petitions_count.groupby('petition_id')['sig_per_pop'].rank(pct=True) * 100)).round(1)
+petitions_count['percentile_rank_pop'] = (100 - (petitions_count.groupby(['petition_id', 'is_scotland'])['sig_per_pop'].rank(pct=True) * 100)).round(1)
+# 'is_scotland' itself is only ever used to scope the two rankings above — nothing
+# else reads it, so it doesn't need to keep taking up space in petitions_df.
+petitions_count = petitions_count.drop(columns=['is_scotland'])
 
 # Working out median count for each petition
 median_counts = petitions_count.groupby('petition_id')['signature_count'].median().reset_index()
@@ -214,12 +223,18 @@ RANK_DISPLAY_FORMAT = {'function': (
     f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES} constituencies'"
 )}
 
-# Same as RANK_DISPLAY_FORMAT, but for sig_per_pop_rank specifically — that rank
-# only covers constituencies with a population estimate, a smaller pool than
-# TOTAL_CONSTITUENCIES, so it needs its own denominator.
-RANK_DISPLAY_FORMAT_POP = {'function': (
-    f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES_WITH_POP} constituencies'"
-)}
+def _is_scotland(PCON24CD):
+    return PCON24CD is not None and PCON24CD.startswith('S')
+
+
+# Same as RANK_DISPLAY_FORMAT, but for sig_per_pop_rank specifically — Scotland is
+# ranked in its own pool (see TOTAL_CONSTITUENCIES_SCOTLAND), so the denominator
+# depends on whether the constituency being displayed is Scottish.
+def make_rank_display_format_pop(PCON24CD):
+    total = TOTAL_CONSTITUENCIES_SCOTLAND if _is_scotland(PCON24CD) else TOTAL_CONSTITUENCIES_WITH_POP
+    return {'function': (
+        f"params.value == null || params.value === 0 ? '' : params.value + ' of {total} constituencies'"
+    )}
 
 # "?" info icons appended to the "Ranking based on no. of sigs" / ".../sigs/pop"
 # headers, explaining via a dbc.Tooltip (added alongside the table below) why a
@@ -234,13 +249,15 @@ RANK_DISPLAY_FORMAT_POP = {'function': (
 RANK_INFO_TEXT = "Ranking only shows for petitions with 10,000 or more signatures"
 SIG_RANK_RAW_INFO_ICON_ID = 'sig-rank-raw-info-icon'
 SIG_PER_POP_RANK_INFO_ICON_ID = 'sig-per-pop-rank-info-icon'
-# The sig/pop ranking specifically also excludes Scotland (no population data for
-# it yet — see get_population_data), on top of the 10,000-signature rule both
-# rank columns share. Two <br>s (not one) so it reads as a separate paragraph.
+# The sig/pop ranking specifically also ranks Scotland separately from the rest
+# of the UK (its population estimates come from a different source — see
+# get_population_data), on top of the 10,000-signature rule both rank columns
+# share. Two <br>s (not one) so it reads as a separate paragraph.
 SIG_PER_POP_RANK_INFO_TEXT = [
     RANK_INFO_TEXT,
     html.Br(), html.Br(),
-    "This ranking excludes constituencies in Scotland because relevant population data is not available.",
+    f"Constituencies in Scotland are ranked separately, out of the other {TOTAL_CONSTITUENCIES_SCOTLAND} "
+    "Scottish constituencies, because their population estimates come from a different source.",
 ]
 
 
@@ -381,11 +398,9 @@ def _build_all_petitions_rowdata(PCON24CD):
 
     if PCON24CD is not None:
         df['signature_count'] = df['signature_count'].astype(int)
-        # sig_rank_raw is NaN for petitions with <= 10,000 total signatures (rank
-        # suppressed above) and sig_per_pop_rank is additionally NaN for constituencies
-        # with no population estimate (Scotland — see TOTAL_CONSTITUENCIES_WITH_POP).
-        # astype(int) can't hold NaN, so cast element-wise and leave those as None
-        # instead of crashing.
+        # sig_rank_raw/sig_per_pop_rank are NaN for petitions with <= 10,000 total
+        # signatures (rank suppressed above). astype(int) can't hold NaN, so cast
+        # element-wise and leave those as None instead of crashing.
         df['sig_rank_raw'] = df['sig_rank_raw'].apply(lambda x: int(x) if pd.notna(x) else None)
         df['sig_per_pop_rank'] = df['sig_per_pop_rank'].apply(lambda x: int(x) if pd.notna(x) else None)
     df['percentile_rank_raw'] = df['percentile_rank_raw'].round(1)
@@ -492,7 +507,7 @@ def _build_all_petitions_columndefs(PCON24CD):
                 {'field': 'sig_per_pop', 'headerName': 'Avg no. of sigs per 1000 pop', 'flex': 1, 'minWidth': 150,
                  'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
                 {'field': 'sig_per_pop_rank', 'headerName': 'Ranking based on no. of sigs/pop',
-                 'valueFormatter': RANK_DISPLAY_FORMAT_POP, 'cellClass': SPAN_GROUP_CELL_CLASS,
+                 'valueFormatter': make_rank_display_format_pop(PCON24CD), 'cellClass': SPAN_GROUP_CELL_CLASS,
                  'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
                  'wrapText': True, 'autoHeight': True,
                  'headerComponentParams': {'template': SIG_PER_POP_RANK_HEADER_TEMPLATE}},
@@ -1911,8 +1926,9 @@ def update_graph(petition_id, PCON24CD):
         if pd.notna(sig_rank) else (no_constituency if PCON24CD is None else no_ranking)
     )
     pop_category = percentile_category(sig_per_pop_percentile)
+    sig_per_pop_pool = TOTAL_CONSTITUENCIES_SCOTLAND if _is_scotland(PCON24CD) else TOTAL_CONSTITUENCIES_WITH_POP
     sig_per_pop_rank_str = (
-        html.Span([f"{int(sig_per_pop_rank)} of {TOTAL_CONSTITUENCIES_WITH_POP}"] + ([html.Span(f"({pop_category})", style=paren_style)] if pop_category else []))
+        html.Span([f"{int(sig_per_pop_rank)} of {sig_per_pop_pool}"] + ([html.Span(f"({pop_category})", style=paren_style)] if pop_category else []))
         if pd.notna(sig_per_pop_rank) else (no_constituency if PCON24CD is None else no_ranking)
     )
 
