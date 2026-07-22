@@ -256,8 +256,8 @@ SIG_PER_POP_RANK_INFO_ICON_ID = 'sig-per-pop-rank-info-icon'
 SIG_PER_POP_RANK_INFO_TEXT = [
     RANK_INFO_TEXT,
     html.Br(), html.Br(),
-    f"Constituencies in Scotland are ranked separately, out of the other {TOTAL_CONSTITUENCIES_SCOTLAND} "
-    "Scottish constituencies, because their population estimates come from a different source.",
+    "Constituencies in Scotland are ranked separately to England, Wales and Northern Ireland "
+    "because population estimates come from a different source.",
 ]
 
 
