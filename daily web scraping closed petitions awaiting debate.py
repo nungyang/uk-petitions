@@ -124,7 +124,7 @@ async def main():
 
     # Downloading list of all open petitions
     print("\n1. Fetching open petitions...")
-    url = 'https://petition.parliament.uk/petitions.csv?state=awaiting_response'
+    url = 'https://petition.parliament.uk/petitions.csv?state=awaiting_debate'
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     closed_petitions = pd.read_csv(StringIO(response.text))
@@ -181,8 +181,8 @@ async def main():
         cache_dir = script_dir / 'cached_data'
         cache_dir.mkdir(exist_ok=True)
 
-        closed_petitions.to_csv(cache_dir / f'petitions_list_{today_str}.csv', index=False)
-        closed_petition_counts_df.to_csv(cache_dir / f'petitions_counts_{today_str}.csv', index=False)
+        closed_petitions.to_csv(cache_dir / f'closed_awaiting_deb_petitions_list_{today_str}.csv', index=False)
+        closed_petition_counts_df.to_csv(cache_dir / f'closed_awaiting_deb_petitions_counts_{today_str}.csv', index=False)
 
         print(f"Saved to {cache_dir}")
     else:
