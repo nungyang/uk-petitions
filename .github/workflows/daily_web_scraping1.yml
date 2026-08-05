@@ -1,4 +1,4 @@
-name: Daily Scraper
+name: Daily Scraper 1
 
 on:
   schedule:
