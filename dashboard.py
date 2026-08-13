@@ -89,6 +89,36 @@ def get_petitions_data():
         raise FileNotFoundError("No petitions data found for today or yesterday")
 
 
+def get_closed_awaiting_debate_data():
+    # Closed petitions currently awaiting a Commons debate (from "daily web scraping
+    # closed petitions awaiting debate.py"). Unlike get_petitions_data(), missing data
+    # here isn't fatal - the workflow producing it may not have run yet - so this
+    # returns (None, None) instead of raising, and callers just skip merging it in.
+    if ENV == 'local':
+        for delta in [0, 1]:
+            date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
+            list_path  = script_dir / 'cached_data' / f'closed_awaiting_deb_petitions_list_{date_str}.csv'
+            count_path = script_dir / 'cached_data' / f'closed_awaiting_deb_petitions_counts_{date_str}.csv'
+            if list_path.exists() and count_path.exists():
+                print(f"Loading closed-awaiting-debate petitions data from local cache for {date_str}...")
+                return pd.read_csv(list_path), pd.read_csv(count_path)
+            print(f"No local cache found for {date_str}, trying previous day...")
+        print("No closed-awaiting-debate petitions data found in local cache, skipping.")
+        return None, None
+    else:
+        for delta in [0, 1]:
+            date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
+            try:
+                closed_list  = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
+                closed_count = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
+                print(f"Loaded closed-awaiting-debate petitions data for {date_str}")
+                return closed_list, closed_count
+            except s3_client.exceptions.NoSuchKey:
+                print(f"No closed-awaiting-debate data found for {date_str}, trying previous day...")
+        print("No closed-awaiting-debate petitions data found for today or yesterday, skipping.")
+        return None, None
+
+
 def get_population_data():
     # England & Wales + Northern Ireland + Scotland population estimates, combined
     # into one lookup. Scotland's file comes from a different source (NRS rather
@@ -122,6 +152,21 @@ print(f"Environment: {ENV}")
 _data_load_t0 = time.time()
 print("Loading petitions data...")
 petitions_list, petitions_count = get_petitions_data()
+
+print("Loading closed-awaiting-debate petitions data...")
+closed_petitions_list, closed_petitions_count = get_closed_awaiting_debate_data()
+if closed_petitions_list is not None:
+    # Merged in at the source so the cross-join/ranking pipeline below treats them
+    # like any other petition_id. Everywhere that should stay open-petitions-only
+    # (top 5s, All Open Petitions, ...) filters status == 'open' explicitly.
+    #
+    # A petition can appear in both pulls (e.g. it closed today but the open pull
+    # fell back to yesterday's file) - keep the closed-awaiting-debate copy, since
+    # it's the more current one, and drop the stale 'open' duplicate.
+    petitions_list = pd.concat([petitions_list, closed_petitions_list], ignore_index=True) \
+        .drop_duplicates(subset='petition_id', keep='last')
+    petitions_count = pd.concat([petitions_count, closed_petitions_count], ignore_index=True) \
+        .drop_duplicates(subset=['petition_id', 'PCON24CD'], keep='last')
 
 print("Loading population data...")
 pop_df = get_population_data()
@@ -340,7 +385,7 @@ def _petitions_display_base(today):
     """Petition-level columns that don't depend on the selected constituency
     (title link, dates, months-open, debate info). Cached per calendar day so
     repeated constituency clicks on the same day skip these pandas .apply() calls."""
-    df = petitions_list.copy()
+    df = petitions_list[petitions_list['status'] == 'open'].copy()
     df['petition_id'] = df['petition_id'].astype(str)
 
     # Months open, based on actual calendar months from the open date (e.g. opened
@@ -1254,12 +1299,18 @@ else:
 
 # ── Dropdowns ─────────────────────────────────────────────
 
-petition_options = petitions_list[['petition_id', 'petition_title']].copy()
+petition_options = petitions_list[['petition_id', 'petition_title', 'status']].copy()
+# Closed-but-awaiting-debate petitions are included here too (unlike All Open
+# Petitions/the top 5 cards), tagged so they read distinctly from open ones.
+petition_options['petition_label'] = petition_options.apply(
+    lambda r: f"{r['petition_title']} (closed, awaiting debate)" if r['status'] == 'closed' else r['petition_title'],
+    axis=1
+)
 
 petition_dropdown = dcc.Dropdown(
     id='petition-dropdown',
     options=[
-        {'label': row['petition_title'], 'value': row['petition_id']}
+        {'label': row['petition_label'], 'value': row['petition_id']}
         for _, row in petition_options.iterrows()
     ],
     value=petition_options.iloc[0]['petition_id'],
