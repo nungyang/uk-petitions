@@ -56,9 +56,7 @@ As noted above, the dashboard uses data from other sources as well.
 | Data description | File type | Data source | Version | Use |
 |----------|----------|----------|----------|----------|
 | Westminster Parliamentary Constituencies (July 2024) Names and Codes in the UK (V2) | geojson | [ONS, Westminster Parliamentary Constituencies July 2024](https://www.data.gov.uk/dataset/ceccb29c-3a8c-4d4e-a1eb-f3088dfc8cc6/westminster-parliamentary-constituencies-july-2024-boundaries-uk-bfe1) | Downloaded on 9 June 2026 | To create choropleth |
-| Constituency population estimates for England and Wales| csv | [NOMIS, Population estimates - small area (2021 based) by single year of age - England and Wales](https://www.nomisweb.co.uk/datasets/pestoa2021) (All ages)| Downloaded on 7 June 2026 | To calculate signatures per 1000 population |
-| Constituency population estimates for Northern Ireland | csv | [NISRA, Parliamentary Constituency 2024](https://build.nisra.gov.uk/en/custom/data?d=PEOPLE&v=PARLCON24)| Downloaded on 8 July 2026 | To calculate signatures per 1000 population |
-| Constituency population estimates for Scotland | csv | [NRS, Other Geographies: mid-2022 to mid-2024 (2011 data zones)](https://www.nrscotland.gov.uk/publications/other-geographies-mid-2022-to-mid-2024-2011-data-zones/) ('UKPC' tab and 'All ages' column, rows where value for 'Year' column was 2024 and value for 'Sex' column was 'Persons')| Downloaded on 22 July 2026 | To calculate signatures per 1000 population |
+| Electorate size in 2024 general election | csv | [HoC, General election 2024 results] (https://commonslibrary.parliament.uk/research-briefings/cbp-10009/)| Downloaded on 13 August 2026 | To calculate number of signatures as proportion of electorate |
 
 Note: For more information on the comparability of population statistics for England, Wales and Northern Ireland, see https://www.ons.gov.uk/news/news/combiningandcomparingcensusfiguresacrosstheuk
 
