@@ -44,13 +44,14 @@ aws_region = os.getenv('AWS_DEFAULT_REGION')
 
 bucket = 'uk-petitions-dashboard'
 
-if ENV != 'local':
-    s3_client = boto3.client(
-        's3',
-        aws_access_key_id=aws_access_key,
-        aws_secret_access_key=aws_secret_key,
-        region_name=aws_region
-    )
+# Created regardless of ENV: local mode falls back to S3 when no local cache
+# file matches today/yesterday (see get_petitions_data() etc. below).
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=aws_access_key,
+    aws_secret_access_key=aws_secret_key,
+    region_name=aws_region
+)
 
 
 # ── S3 loading functions ──────────────────────────────────
@@ -59,6 +60,15 @@ def load_csv(filename):
     s3_object = s3_client.get_object(Bucket=bucket, Key=filename)
     df = pd.read_csv(s3_object['Body'])
     return df
+
+
+def save_local_cache(df, filename):
+    # Persists an S3 fallback fetch to cached_data/ so the next ENV=local run
+    # doesn't have to hit S3 again for the same date.
+    cache_path = script_dir / 'cached_data' / filename
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(cache_path, index=False)
+    print(f"Saved local cache: {cache_path.name}")
 
 
 # ── Cached data loaders ───────────────────────────────────
@@ -75,18 +85,23 @@ def get_petitions_data():
                 petitions_count = pd.read_csv(count_path)
                 return petitions_list, petitions_count
             print(f"No local cache found for {date_str}, trying previous day...")
-        raise FileNotFoundError("No petitions data found in local cache for today or yesterday")
-    else:
-        for delta in [0, 1]:
-            date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
-            try:
-                petitions_list  = load_csv(f'dynamic_data/petitions_list_{date_str}.csv')
-                petitions_count = load_csv(f'dynamic_data/petitions_counts_{date_str}.csv')
-                print(f"Loaded data for {date_str}")
-                return petitions_list, petitions_count
-            except s3_client.exceptions.NoSuchKey:
-                print(f"No data found for {date_str}, trying previous day...")
-        raise FileNotFoundError("No petitions data found for today or yesterday")
+        print("No local cache found for today or yesterday, falling back to S3...")
+
+    # Same today/yesterday lookup used in production - also the local-mode
+    # fallback when no local cache file matches either date.
+    for delta in [0, 1]:
+        date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
+        try:
+            petitions_list  = load_csv(f'dynamic_data/petitions_list_{date_str}.csv')
+            petitions_count = load_csv(f'dynamic_data/petitions_counts_{date_str}.csv')
+            print(f"Loaded data for {date_str} from S3")
+            if ENV == 'local':
+                save_local_cache(petitions_list, f'petitions_list_{date_str}.csv')
+                save_local_cache(petitions_count, f'petitions_counts_{date_str}.csv')
+            return petitions_list, petitions_count
+        except s3_client.exceptions.NoSuchKey:
+            print(f"No data found for {date_str}, trying previous day...")
+    raise FileNotFoundError("No petitions data found in local cache or S3 for today or yesterday")
 
 
 def get_closed_awaiting_debate_data():
@@ -103,20 +118,24 @@ def get_closed_awaiting_debate_data():
                 print(f"Loading closed-awaiting-debate petitions data from local cache for {date_str}...")
                 return pd.read_csv(list_path), pd.read_csv(count_path)
             print(f"No local cache found for {date_str}, trying previous day...")
-        print("No closed-awaiting-debate petitions data found in local cache, skipping.")
-        return None, None
-    else:
-        for delta in [0, 1]:
-            date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
-            try:
-                closed_list  = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
-                closed_count = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
-                print(f"Loaded closed-awaiting-debate petitions data for {date_str}")
-                return closed_list, closed_count
-            except s3_client.exceptions.NoSuchKey:
-                print(f"No closed-awaiting-debate data found for {date_str}, trying previous day...")
-        print("No closed-awaiting-debate petitions data found for today or yesterday, skipping.")
-        return None, None
+        print("No local cache found for today or yesterday, falling back to S3...")
+
+    # Same today/yesterday lookup used in production - also the local-mode
+    # fallback when no local cache file matches either date.
+    for delta in [0, 1]:
+        date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
+        try:
+            closed_list  = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
+            closed_count = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
+            print(f"Loaded closed-awaiting-debate petitions data for {date_str} from S3")
+            if ENV == 'local':
+                save_local_cache(closed_list, f'closed_awaiting_deb_petitions_list_{date_str}.csv')
+                save_local_cache(closed_count, f'closed_awaiting_deb_petitions_counts_{date_str}.csv')
+            return closed_list, closed_count
+        except s3_client.exceptions.NoSuchKey:
+            print(f"No closed-awaiting-debate data found for {date_str}, trying previous day...")
+    print("No closed-awaiting-debate petitions data found in local cache or S3 for today or yesterday, skipping.")
+    return None, None
 
 
 def get_electorate_data():
@@ -124,11 +143,16 @@ def get_electorate_data():
     # General Election results — one row per UK constituency (England, Wales,
     # Scotland and Northern Ireland all from the same source), 'ONS ID' matching
     # the PCON24CD codes used everywhere else.
-    if ENV == 'local':
+    local_path = script_dir / 'cached_data' / 'HoC_GE2024.csv'
+    if ENV == 'local' and local_path.exists():
         print("Loading electorate data from local cache...")
-        df = pd.read_csv(script_dir / 'cached_data' / 'HoC_GE2024.csv')
+        df = pd.read_csv(local_path)
     else:
+        if ENV == 'local':
+            print("No local cache found for electorate data, falling back to S3...")
         df = load_csv('static data/HoC_GE2024.csv')
+        if ENV == 'local':
+            save_local_cache(df, 'HoC_GE2024.csv')
     return df[['ONS ID', 'Electorate']].rename(columns={'ONS ID': 'PCON24CD', 'Electorate': 'electorate'})
 
 
@@ -261,6 +285,14 @@ RANK_DISPLAY_FORMAT = {'function': (
 RANK_INFO_TEXT = "Ranking only shows for petitions with 10,000 or more signatures"
 SIG_RANK_RAW_INFO_ICON_ID = 'sig-rank-raw-info-icon'
 SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID = 'sig-prop-electorate-rank-info-icon'
+
+VIEW_PETITION_BTN_STYLE = {
+    'position': 'absolute', 'top': '14px', 'right': '18px',
+    'fontSize': '12px', 'fontWeight': 'bold', 'color': 'white',
+    'border': '1px solid #373151', 'borderRadius': '6px',
+    'padding': '4px 10px', 'textDecoration': 'none',
+    'backgroundColor': '#373151'
+}
 
 
 def make_header_info_icon_template(icon_id):
@@ -532,7 +564,19 @@ def build_all_petitions_table():
         defaultColDef={'sortable': True, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True,
                        'cellStyle': {'textAlign': 'center'}},
         dashGridOptions={'pagination': True, 'paginationPageSize': _ALL_PETITIONS_PAGE_SIZE, 'domLayout': 'autoHeight',
-                         'unSortIcon': True, 'groupHeaderHeight': 56, 'enableCellSpan': True},
+                         'unSortIcon': True, 'groupHeaderHeight': 56,
+                         # autoHeaderHeight (below) measures the wrapped header text's real
+                         # height via a ResizeObserver that only fires *after* the header
+                         # first paints at ag-Grid's small built-in default — so on every
+                         # mount the header visibly grows a beat after the rest of the grid
+                         # already looks settled. Seeding the leaf header row's height with
+                         # the value that measurement always converges to (given this
+                         # column set's fixed minWidths, which keep wrapping at 2 lines
+                         # regardless of viewport width) makes the first paint already
+                         # correct, so there's nothing left to visibly snap into place.
+                         # autoHeaderHeight stays on as a safety net if that ever changes.
+                         'headerHeight': 62,
+                         'enableCellSpan': True},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
         style={'width': '100%'},
@@ -826,7 +870,7 @@ app.index_string = '''
                 padding-top: 8px;
             }
             .rank-ratio-cell .agGrid-Markdown div {
-                line-height: 1.75;
+                line-height: 1.3;
             }
 
             /* AG-Grid's own CSS gives .ag-center-cols-viewport a min-height: 100%, which
@@ -1362,14 +1406,14 @@ page_nav = dbc.Nav([
 
 banner = dbc.Navbar(
     dbc.Container([
-        html.H3("UK Petitions Dashboard", className="text-white mb-0"),
+        html.Img(src=app.get_asset_url('Logo.png'), style={'height': '68px'}),
         page_nav,
         dbc.Row([
             dbc.Col(html.Label("Constituency:", className="text-white mb-0 me-2"), width="auto"),
             dbc.Col(constituency_dropdown, width="auto"),
         ], align="center", className="g-2 flex-nowrap"),
     ], fluid=True, style={'paddingLeft': '34px', 'paddingRight': '32px'}),
-    color="primary",
+    color="#373151",
     dark=True,
 )
 
@@ -1451,6 +1495,13 @@ app.layout = html.Div([
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
+                                    html.A(
+                                        "View petition ↗",
+                                        id='view-petition-link-btn',
+                                        href='#',
+                                        target='_blank',
+                                        style={**VIEW_PETITION_BTN_STYLE, 'display': 'none'}
+                                    ),
                                     html.Div([
                                         html.H5("Upcoming debate(s) on", className="mb-0 me-2"),
                                         debate_date_dropdown
@@ -1491,7 +1542,7 @@ app.layout = html.Div([
                                             )
                                         ], style={'flex': '0 0 78%', 'maxWidth': '78%'}),
                                     ], className="g-2 mb-2"),
-                                ], className="pt-3 pb-2"),
+                                ], className="pt-3 pb-2", style={'position': 'relative'}),
                                 className="shadow-sm h-100", style={'borderRadius': '14px'}
                             )
                         ], style={'flex': '0 0 61%', 'maxWidth': '61%'})
@@ -1502,6 +1553,14 @@ app.layout = html.Div([
 
             dcc.Tab(value='tab-2', children=[
                 html.Div([
+
+                    html.A(
+                        "View petition ↗",
+                        id='view-petition-link-btn-2',
+                        href='#',
+                        target='_blank',
+                        style={**VIEW_PETITION_BTN_STYLE, 'display': 'none'}
+                    ),
 
                     dbc.Row([
                         dbc.Col(
@@ -1609,7 +1668,7 @@ app.layout = html.Div([
                         ], width=7, style={'display': 'flex', 'flexDirection': 'column', 'minHeight': '0'}),
                     ], className="g-2", style={'height': 'calc(100vh - 195px)'})
 
-                ], style={'padding': '20px', 'paddingTop': '14px'})
+                ], style={'padding': '20px', 'paddingTop': '14px', 'position': 'relative'})
             ]),
 
             dcc.Tab(value='tab-3', children=[
@@ -1787,6 +1846,8 @@ def update_petitions_for_date(selected_date):
     Output('debate-ranking-box', 'children'),
     Output('upcoming-debates-histogram', 'figure'),
     Output('upcoming-debates-histogram', 'config'),
+    Output('view-petition-link-btn', 'href'),
+    Output('view-petition-link-btn', 'style'),
     Input('upcoming-debate-dropdown', 'value'),
     Input('analytics-petition-dropdown', 'value')
 )
@@ -1807,11 +1868,15 @@ def update_debate_section(petition_id, PCON24CD):
         )
         # staticPlot removes Plotly's drag layer entirely, so the cursor stays a
         # normal arrow over the blank area instead of showing the drag/pan cursor.
-        return "", "", "", blank_fig, {**histogram_config, 'staticPlot': True}
+        return (
+            "", "", "", blank_fig, {**histogram_config, 'staticPlot': True},
+            '#', {**VIEW_PETITION_BTN_STYLE, 'display': 'none'}
+        )
 
     df = petitions_df[petitions_df['petition_id'] == petition_id]
 
     total_votes = df['total_signature_count'].iloc[0]
+    petition_url = df['petition_url'].iloc[0]
 
     constituency_row = df.loc[df['PCON24CD'] == PCON24CD] if PCON24CD is not None else None
 
@@ -1848,7 +1913,10 @@ def update_debate_section(petition_id, PCON24CD):
         if pd.notna(sig_rank) else (no_constituency if PCON24CD is None else no_ranking)
     )
 
-    return total_votes_str, sig_prop_electorate_str, ranking_str, fig, histogram_config
+    return (
+        total_votes_str, sig_prop_electorate_str, ranking_str, fig, histogram_config,
+        petition_url, {**VIEW_PETITION_BTN_STYLE, 'display': 'inline-block'}
+    )
 
 
 # ── All Petitions table ───────────────────────────────────
@@ -1879,6 +1947,8 @@ def update_all_petitions_table(PCON24CD):
     Output('petition-sig-prop-electorate-box', 'children'),
     Output('petition-sig-prop-electorate-rank-box', 'children'),
     Output('petition-top-constituencies-table', 'children'),
+    Output('view-petition-link-btn-2', 'href'),
+    Output('view-petition-link-btn-2', 'style'),
     Input('petition-dropdown', 'value'),
     Input('analytics-petition-dropdown', 'value')
 )
@@ -1896,6 +1966,8 @@ def update_graph(petition_id, PCON24CD):
     print(f"Time to retrieve and process petition data: {time.time() - callback_start:.4f}s")
 
     total_signatures = df['signature_count'].sum()
+
+    petition_url = df['petition_url'].iloc[0]
 
     opened_at = df['opened_at'].iloc[0] if 'opened_at' in df.columns else None
     opened_at_str = str(opened_at) if pd.notna(opened_at) else ""
@@ -1954,7 +2026,8 @@ def update_graph(petition_id, PCON24CD):
         debate_date_str,
         sig_prop_electorate_str,
         sig_prop_electorate_rank_str,
-        top_constituencies_table
+        top_constituencies_table,
+        petition_url, {**VIEW_PETITION_BTN_STYLE, 'display': 'inline-block'}
     )
 
 

@@ -1,3 +1,11 @@
+/* Reserve space for the vertical scrollbar on every tab, even ones whose
+   content fits the viewport with no scroll - otherwise the page (including
+   the top nav pills) shifts sideways when switching to/from a tab that
+   scrolls. */
+html {
+    scrollbar-gutter: stable;
+}
+
 /* "?" info icons spliced into a few "All data" column headers (see
    make_header_info_icon_template in dashboard.py) — hovering one shows a
    dbc.Tooltip. eText and the icon share one inline-flow wrapper (rather than
@@ -101,4 +109,10 @@ div[style*="overflowY: auto"]::-webkit-scrollbar-thumb {
 
 div[style*="overflowY: auto"]::-webkit-scrollbar-thumb:hover {
     background: #555;
+}
+
+/* Top nav pills default to the bootstrap theme's primary purple when active -
+   match the navbar's own shade instead. */
+.nav-pills .nav-link.active {
+    background-color: #373151;
 }
