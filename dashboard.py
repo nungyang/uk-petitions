@@ -921,8 +921,17 @@ app.index_string = '''
             /* dbc.NavLink has no href (tab switching is driven by a callback off its
                id, not real navigation), so browsers don't apply the usual link
                pointer cursor and fall back to the text-select cursor instead. */
-            #tab-1-navlink, #tab-2-navlink, #tab-3-navlink {
+            #tab-1-navlink, #tab-2-navlink, #tab-3-navlink, #tab-4-navlink {
                 cursor: pointer;
+            }
+
+            /* Force the longer nav labels onto two lines so every top-nav link
+               reads at a consistent width instead of stretching the banner. */
+            .page-navlink-wrap {
+                white-space: normal !important;
+                width: 130px;
+                text-align: center;
+                line-height: 1.2;
             }
 
             /* Native dcc.Tabs header is replaced by the nav in the top banner; hide it
@@ -930,6 +939,14 @@ app.index_string = '''
                (and the Map tab's plotly graph sizing) still works. */
             .tab-container {
                 display: none !important;
+            }
+
+            /* dcc.Tabs' own wrapper sets overflow: hidden (for the hidden tab header's
+               horizontal scrolling), which silently breaks position: sticky for anything
+               inside it - e.g. the About page's nav pane. Safe to relax since the header
+               it was protecting is hidden above anyway. */
+            .tab-parent {
+                overflow: visible !important;
             }
 
             /* Consistent sort arrow alignment across all columns */
@@ -1111,6 +1128,18 @@ app.index_string = '''
             #all-petitions-datatable .ag-paging-page-summary-panel .ag-paging-number[data-ref="lbCurrent"] input::-webkit-inner-spin-button {
                 -webkit-appearance: none;
                 margin: 0;
+            }
+            /* Body text on the About page shouldn't show the text-selection (I-beam)
+               cursor; hyperlinks should still show the pointer cursor. */
+            #about-page-content, #about-page-content * {
+                cursor: default;
+            }
+            #about-page-content a {
+                cursor: pointer;
+                color: #1155CC;
+            }
+            #about-page-content a:visited {
+                color: #6B3FA0;
             }
         </style>
     </head>
@@ -1399,10 +1428,11 @@ debate_date_dropdown = dcc.Dropdown(
 # ── Banner ─────────────────────────────────────────────────
 
 page_nav = dbc.Nav([
-    dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True),
-    dbc.NavLink("Petition Overview", id='tab-2-navlink', active=False),
-    dbc.NavLink("All Open Petitions", id='tab-3-navlink', active=False),
-], pills=True, className="gap-4")
+    dbc.NavLink("About", id='tab-4-navlink', active=False),
+    dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True, className="page-navlink-wrap"),
+    dbc.NavLink("Petition Overview", id='tab-2-navlink', active=False, className="page-navlink-wrap"),
+    dbc.NavLink("All Open Petitions", id='tab-3-navlink', active=False, className="page-navlink-wrap"),
+], pills=True, className="gap-4 align-items-center")
 
 banner = dbc.Navbar(
     dbc.Container([
@@ -1682,6 +1712,294 @@ app.layout = html.Div([
                     ])
 
                 ], style={'padding': '20px'})
+            ]),
+
+            dcc.Tab(value='tab-4', children=[
+                html.Div([
+
+                    dbc.Row([
+                        dbc.Col(
+                            html.Div([
+                                html.A(
+                                    "Overview", href="#about-section-overview",
+                                    className="d-block mb-2"
+                                ),
+                                html.A(
+                                    "Background", href="#about-section-background",
+                                    className="d-block mb-2"
+                                ),
+                                html.A(
+                                    "Technical notes", href="#about-section-technical-notes",
+                                    className="d-block mb-2"
+                                ),
+                                html.A(
+                                    "Shortcomings to petition data",
+                                    href="#about-section-shortcomings",
+                                    className="d-block mb-2 ms-3",
+                                    style={'fontSize': '13px'}
+                                ),
+                                html.A(
+                                    "Figures may differ to official site",
+                                    href="#about-section-figures-differ",
+                                    className="d-block mb-2 ms-3",
+                                    style={'fontSize': '13px'}
+                                ),
+                                html.A(
+                                    "Reasons for using electorate",
+                                    href="#about-section-electorate",
+                                    className="d-block mb-2 ms-3",
+                                    style={'fontSize': '13px'}
+                                ),
+                                html.A(
+                                    "↑ Back to top",
+                                    href="#about-page-content",
+                                    className="d-block mt-4"
+                                ),
+                            ], className="sticky-top", style={'top': '20px', 'marginTop': '16px'}),
+                            id='about-nav-pane', width=3
+                        ),
+                        dbc.Col([
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("Overview", id="about-section-overview", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
+                                    html.P(
+                                        "The UK Petitions Dashboard has been designed as a tool to help MPs "
+                                        "and their staff make better use of publicly available data on UK "
+                                        "e-petitions, by presenting key statistics in a more accessible way. "
+                                        "It is run independently of the UK Government and Parliament."
+                                    ),
+                                ]),
+                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                            ),
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("Background", id="about-section-background", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
+                                    html.P([
+                                        "The ",
+                                        html.A(
+                                            "UK Government and Parliament Petitions",
+                                            href="https://petition.parliament.uk/",
+                                            target="_blank",
+                                        ),
+                                        " website hosts numerous petitions, each calling for a change in "
+                                        "Government policy or legislation. Unlike other petition websites, "
+                                        "such as Change.org, any petition that has over 10,000 signatures "
+                                        "receives a written response from the Government, while those that "
+                                        "have over 100,000 signatures are considered for debate in Parliament."
+                                    ]),
+                                    html.P(
+                                        "The UK Petitions website hosts data on the number of signatures for "
+                                        "each petition, including a breakdown by constituency. That data can "
+                                        "be accessed by navigating to each individual petition page, but there "
+                                        "is currently no easy way of gaining an overview of petition data, "
+                                        "especially at the constituency level."
+                                    ),
+                                    html.P(
+                                        "The aim of UK Petition Analytics is to make that data more accessible "
+                                        "for MPs and their staff. Petition data serves as a useful temperature "
+                                        "check to gauge how pertinent various issues are in any given "
+                                        "constituency and how that compares to another. As noted above, those "
+                                        "with more than 100,000 signatures are considered for debate, which "
+                                        "means an oversight of petitions can help MPs better decide how to "
+                                        "organise their time. Given that petition data is so readily "
+                                        "available, it would be a missed opportunity not to make better use "
+                                        "of it."
+                                    ),
+                                ]),
+                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                            ),
+                            dbc.Card(
+                                dbc.CardBody([
+                            html.H5(
+                                "Technical notes", id="about-section-technical-notes",
+                                className="mb-3",
+                                style={'textDecoration': 'underline', 'fontSize': '26px'}
+                            ),
+                            html.H6(
+                                "Shortcomings to petition data",
+                                id="about-section-shortcomings", className="mb-3",
+                                style={'textDecoration': 'underline', 'fontSize': '19px'}
+                            ),
+                            html.P(
+                                "As noted above, petition data can act as a useful temperature "
+                                "check, but it does have a few shortcomings that should be taken "
+                                "into consideration when using the dashboard:"
+                            ),
+                            html.Ul([
+                                html.Li([
+                                    "There is currently no mechanism to stop one person signing "
+                                    "the same petition twice, which means the ",
+                                    html.Strong("number of signatures may be inflated"),
+                                    ".",
+                                    html.Sup(
+                                        html.A("1", href="#about-footnote-1",
+                                               style={'textDecoration': 'none'})
+                                    ),
+                                ]),
+                                html.Li(
+                                    "There is also no mechanism to check the postcode someone "
+                                    "enters when they sign a petition, which means there may be "
+                                    "some inaccuracies in constituency level data."
+                                ),
+                                html.Li([
+                                    "As these petitions are hosted online, they are likely to be ",
+                                    html.Strong("underrepresenting views of older constituents"),
+                                    ".",
+                                ]),
+                            ]),
+                            html.H6(
+                                "Figures may differ slightly to those on the official petition "
+                                "website", id="about-section-figures-differ",
+                                className="mb-3 mt-5",
+                                style={'textDecoration': 'underline', 'fontSize': '19px'}
+                            ),
+                            html.P([
+                                "This website is updated automatically every morning, usually "
+                                "around 4am. There may, however, be some days where it updates "
+                                "later than that if there are technical issues with GitHub "
+                                "Actions. Issues with GitHub Actions are recorded on: ",
+                                html.A(
+                                    "https://www.githubstatus.com/history",
+                                    href="https://www.githubstatus.com/history",
+                                    target="_blank",
+                                ),
+                                ".",
+                            ]),
+                            html.H6(
+                                "Reasons for using electorate instead of population as base "
+                                "size for proportions",
+                                id="about-section-electorate", className="mb-1 mt-5",
+                                style={'textDecoration': 'underline', 'fontSize': '19px'}
+                            ),
+                            html.P(
+                                html.Strong(
+                                    "Population estimates for Westminster Parliamentary "
+                                    "constituencies in England, Wales, Northern Ireland and "
+                                    "Scotland are not always comparable to each other in a way "
+                                    "that electorate size is."
+                                ),
+                                className="mb-3"
+                            ),
+                            html.P(
+                                "Population estimates are based on Census data, which is "
+                                "collected every 10 years (most recently in 2021/22), but "
+                                "Westminster constituency boundaries are reviewed every 8 years "
+                                "(most recently modified in 2024). This means population "
+                                "estimates for Westminster parliamentary constituencies have to "
+                                "be re-aggregated as and when constituency boundaries are "
+                                "redefined."
+                            ),
+                            html.P([
+                                "Responsibility for those population estimates lie with three "
+                                "different public bodies: the ONS for England and Wales, NISRA "
+                                "for Northern Ireland and the NRS for Scotland. While these "
+                                "three bodies work together to produce the Census,",
+                                html.Sup(
+                                    html.A("2", href="#about-footnote-2",
+                                           style={'textDecoration': 'none'})
+                                ),
+                                " they do not necessarily produce population estimates for "
+                                "revised Westminster constituency boundaries using the same "
+                                "methodology and they may publish them at different times.",
+                                html.Sup(
+                                    html.A("3", href="#about-footnote-3",
+                                           style={'textDecoration': 'none'})
+                                ),
+                                " For example, NRS has not yet produced population estimates "
+                                "for the latest constituency boundaries using Census data, "
+                                "although it has produced them using data from '2011 data "
+                                "zones'.",
+                                html.Sup(
+                                    html.A("4", href="#about-footnote-4",
+                                           style={'textDecoration': 'none'})
+                                ),
+                                " Additionally, the most recent Census was run a year later in "
+                                "Scotland than in England, Wales and Northern Ireland, due to "
+                                "the pandemic, creating additional complications.",
+                                html.Sup(
+                                    html.A("5", href="#about-footnote-5",
+                                           style={'textDecoration': 'none'})
+                                ),
+                            ]),
+                            html.P(
+                                "By contrast, data on electorate size is always available for "
+                                "the latest Westminster parliamentary constituency boundaries. "
+                                "They are always collected at the same timepoint across all "
+                                "four countries. This makes it possible to produce comparable "
+                                "statistics for all 650 constituencies when using electorate "
+                                "size."
+                            ),
+                            html.P(
+                                "One shortcoming of using electorate size, however, is that it "
+                                "does not necessarily represent the entire population that is "
+                                "eligible to sign the petition: there is no requirement to be "
+                                "registered to vote and no restriction on age or citizenship "
+                                "status to sign an e-petition."
+                            ),
+                            html.Hr(className="mt-5"),
+                            html.P([
+                                html.Sup("1", id="about-footnote-1"),
+                                " Tasneem Ghazi, 'Are Online Petitions Useful?', ",
+                                html.I("The Constitution Society"),
+                                ", 29 January 2025 <",
+                                html.A(
+                                    "https://consoc.org.uk/blog-are-online-petitions-useful/",
+                                    href="https://consoc.org.uk/blog-are-online-petitions-useful/",
+                                    target="_blank",
+                                ),
+                                "> [accessed 1 September 2026]",
+                            ], style={'fontSize': '13px'}),
+                            html.P([
+                                html.Sup("2", id="about-footnote-2"),
+                                " Office for National Statistics, 'Combining and Comparing "
+                                "Census Figures across the UK', ",
+                                html.I("Census 2021"),
+                                " <",
+                                html.A(
+                                    "www.ons.gov.uk/news/news/combiningandcomparingcensusfiguresacrosstheuk",
+                                    href="https://www.ons.gov.uk/news/news/combiningandcomparingcensusfiguresacrosstheuk",
+                                    target="_blank",
+                                ),
+                                "> [accessed 1 September 2026].",
+                            ], style={'fontSize': '13px'}),
+                            html.P([
+                                html.Sup("3", id="about-footnote-3"),
+                                " Email from Office for National Statistics to UK Petition "
+                                "Analytics Owner, 4 August 2026.",
+                            ], style={'fontSize': '13px'}),
+                            html.P([
+                                html.Sup("4", id="about-footnote-4"),
+                                " According to the UK Data Service website, population "
+                                "estimates for constituencies in Scotland based on the latest "
+                                "boundaries and 2022 census data is 'Pending': UK Data Service, "
+                                "'Scotland's Census 2022 – UV101a: Usual Resident "
+                                "Population by Sex by Age (20 Categories)' <",
+                                html.A(
+                                    "statistics.ukdataservice.ac.uk/dataset/scotland-s-census-2022-uv101a-usual-resident-population-by-sex-by-age-20",
+                                    href="https://statistics.ukdataservice.ac.uk/dataset/scotland-s-census-2022-uv101a-usual-resident-population-by-sex-by-age-20",
+                                    target="_blank",
+                                ),
+                                "> [accessed 1 September 2026]. For population estimates based "
+                                "on data zones, see: National Records of Scotland, 'Other "
+                                "Geographies: Mid-2022 to Mid-2024 (2011 Data Zones)' <",
+                                html.A(
+                                    "https://www.nrscotland.gov.uk/publications/other-geographies-mid-2022-to-mid-2024-2011-data-zones/",
+                                    href="https://www.nrscotland.gov.uk/publications/other-geographies-mid-2022-to-mid-2024-2011-data-zones/",
+                                    target="_blank",
+                                ),
+                                "> [accessed 1 September 2026].",
+                            ], style={'fontSize': '13px'}),
+                            html.P([
+                                html.Sup("5", id="about-footnote-5"),
+                                " ONS, 'Combining and Comparing Census Figures across the UK'.",
+                            ], style={'fontSize': '13px'}),
+                                ]),
+                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                            ),
+                        ], width=8)
+                    ])
+
+                ], id='about-page-content', style={'padding': '20px'})
             ])
 
         ])
@@ -1700,17 +2018,21 @@ app.layout = html.Div([
     Output('tab-1-navlink', 'active'),
     Output('tab-2-navlink', 'active'),
     Output('tab-3-navlink', 'active'),
+    Output('tab-4-navlink', 'active'),
     Input('tab-1-navlink', 'n_clicks'),
     Input('tab-2-navlink', 'n_clicks'),
     Input('tab-3-navlink', 'n_clicks'),
+    Input('tab-4-navlink', 'n_clicks'),
     prevent_initial_call=True
 )
-def switch_tab(_n1, _n2, _n3):
+def switch_tab(_n1, _n2, _n3, _n4):
     if ctx.triggered_id == 'tab-2-navlink':
-        return 'tab-2', False, True, False
+        return 'tab-2', False, True, False, False
     if ctx.triggered_id == 'tab-3-navlink':
-        return 'tab-3', False, False, True
-    return 'tab-1', True, False, False
+        return 'tab-3', False, False, True, False
+    if ctx.triggered_id == 'tab-4-navlink':
+        return 'tab-4', False, False, False, True
+    return 'tab-1', True, False, False, False
 
 
 # ── Constituency Overview tab ─────────────────────────────
