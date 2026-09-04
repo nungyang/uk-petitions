@@ -215,8 +215,6 @@ petitions_count['sig_prop_electorate'] = (petitions_count['signature_count'] / p
 
 # Adding rank
 petitions_count['sig_prop_electorate_rank'] = petitions_count.groupby('petition_id')['sig_prop_electorate'].rank(ascending=False, method='min')
-petitions_count['sig_rank_raw'] = petitions_count.groupby('petition_id')['signature_count'].rank(ascending=False, method='min')
-petitions_count['percentile_rank_raw'] = (100 - (petitions_count.groupby('petition_id')['signature_count'].rank(pct=True) * 100)).round(1)
 petitions_count['percentile_rank_electorate'] = (100 - (petitions_count.groupby('petition_id')['sig_prop_electorate'].rank(pct=True) * 100)).round(1)
 
 # Working out median count for each petition
@@ -237,9 +235,7 @@ del petitions_count, skeleton_df, electorate_df, petition_ids, median_counts
 gc.collect()
 
 # If total count is less than 10,000, then remove ranking
-petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_raw'] = np.nan
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'percentile_rank_electorate'] = np.nan
-petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'sig_rank_raw'] = np.nan
 petitions_df.loc[petitions_df['total_signature_count'] <= 10000, 'sig_prop_electorate_rank'] = np.nan
 
 print(f"[startup] Merge/cross-join/rank computation: {time.time() - _merge_t0:.2f}s")
@@ -266,24 +262,23 @@ PERCENTILE_CATEGORY_FORMAT = {'function': (
     "params.value <= 50 ? 'Top 50%' : 'Bottom 50%'"
 )}
 
-# Displays a rank (e.g. sig_rank_raw / sig_prop_electorate_rank) as "N of {TOTAL_CONSTITUENCIES}"
+# Displays a rank (e.g. sig_prop_electorate_rank) as "N of {TOTAL_CONSTITUENCIES}"
 # while the underlying cell value stays numeric, so ascending/descending sort works.
 RANK_DISPLAY_FORMAT = {'function': (
     f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES} constituencies'"
 )}
 
-# "?" info icons appended to the "Ranking based on no. of sigs" / ".../sigs/electorate"
-# headers, explaining via a dbc.Tooltip (added alongside the table below) why a
-# petition's ranking can be blank — it's suppressed for petitions with under 10,000
-# signatures (see the total_signature_count <= 10000 filtering above). A dbc.Tooltip
-# is used instead of a native title attribute because native tooltips are unreliable —
-# some browsers/embedded webviews cancel them if the hovered element's ancestors mutate
+# "?" info icon appended to the "Ranking based on no. of sigs/electorate" header,
+# explaining via a dbc.Tooltip (added alongside the table below) why a petition's
+# ranking can be blank — it's suppressed for petitions with under 10,000 signatures
+# (see the total_signature_count <= 10000 filtering above). A dbc.Tooltip is used
+# instead of a native title attribute because native tooltips are unreliable — some
+# browsers/embedded webviews cancel them if the hovered element's ancestors mutate
 # (as AG Grid's header cells do while re-laying-out after a constituency is selected).
 # The icon itself still needs AG Grid's header template override (the default
 # agColumnHeader template, docs' "Header Templates" page, with one extra <span> spliced
 # in) since headerName is plain text and can't hold markup.
 RANK_INFO_TEXT = "Ranking only shows for petitions with 10,000 or more signatures"
-SIG_RANK_RAW_INFO_ICON_ID = 'sig-rank-raw-info-icon'
 SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID = 'sig-prop-electorate-rank-info-icon'
 
 VIEW_PETITION_BTN_STYLE = {
@@ -312,7 +307,6 @@ def make_header_info_icon_template(icon_id):
 '''
 
 
-SIG_RANK_RAW_HEADER_TEMPLATE = make_header_info_icon_template(SIG_RANK_RAW_INFO_ICON_ID)
 SIG_PROP_ELECTORATE_RANK_HEADER_TEMPLATE = make_header_info_icon_template(SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID)
 
 # Same pattern for the "Scheduled debate date" header — explains the 100,000-signature
@@ -422,8 +416,7 @@ def _build_all_petitions_rowdata(PCON24CD):
 
     # Constituency-level stats for the selected constituency
     constituency_sigs = petitions_df[petitions_df['PCON24CD'] == PCON24CD][[
-        'petition_id', 'signature_count', 'sig_rank_raw',
-        'percentile_rank_raw', 'percentile_rank_electorate',
+        'petition_id', 'signature_count', 'percentile_rank_electorate',
         'sig_prop_electorate', 'sig_prop_electorate_rank'
     ]].drop_duplicates(subset='petition_id').copy()
     constituency_sigs['petition_id'] = constituency_sigs['petition_id'].astype(str)
@@ -432,14 +425,11 @@ def _build_all_petitions_rowdata(PCON24CD):
 
     if PCON24CD is not None:
         df['signature_count'] = df['signature_count'].astype(int)
-        # sig_rank_raw/sig_prop_electorate_rank are NaN for petitions with <= 10,000 total
-        # signatures (rank suppressed above). astype(int) can't hold NaN, so cast
-        # element-wise and leave those as None instead of crashing.
-        df['sig_rank_raw'] = df['sig_rank_raw'].apply(lambda x: int(x) if pd.notna(x) else None)
+        # sig_prop_electorate_rank is NaN for petitions with <= 10,000 total signatures
+        # (rank suppressed above). astype(int) can't hold NaN, so cast element-wise and
+        # leave those as None instead of crashing.
         df['sig_prop_electorate_rank'] = df['sig_prop_electorate_rank'].apply(lambda x: int(x) if pd.notna(x) else None)
-    df['percentile_rank_raw'] = df['percentile_rank_raw'].round(1)
     df['percentile_rank_electorate'] = df['percentile_rank_electorate'].round(1)
-    df['sig_prop_of_total'] = df['signature_count'] / df['total_signature_count'] * 100
 
     table_df = df[[
         'petition_title_link',
@@ -447,9 +437,6 @@ def _build_all_petitions_rowdata(PCON24CD):
         'months_open_rank',
         'total_signature_count',
         'signature_count',
-        'sig_rank_raw',
-        'percentile_rank_raw',
-        'sig_prop_of_total',
         'sig_prop_electorate',
         'sig_prop_electorate_rank',
         'percentile_rank_electorate',
@@ -464,7 +451,7 @@ def _build_all_petitions_rowdata(PCON24CD):
 _ALL_PETITIONS_PAGE_SIZE = 20
 
 # When no constituency is selected, a row near the top of each page carries the
-# merged placeholder message (colSpan across all 7 per-constituency columns);
+# merged placeholder message (colSpan across all 4 per-constituency columns);
 # every other row's cell in that column renders blank. dash_ag_grid compiles
 # colSpan/valueGetter as an expression-bodied arrow function (params) => (CODE) —
 # no statements/var/return allowed — so this has to be one composed expression.
@@ -477,9 +464,9 @@ _ALL_PETITIONS_NUMBER_FORMAT = {'function': "d3.format(',')(params.value)"}
 
 
 def _build_all_petitions_columndefs(PCON24CD):
-    # When no constituency is selected, the seven per-constituency columns lose their
+    # When no constituency is selected, the four per-constituency columns lose their
     # internal grid lines (both the vertical divider between them and the row line
-    # under them) so they read as one blank panel instead of seven empty columns;
+    # under them) so they read as one blank panel instead of four empty columns;
     # once a constituency is picked they get their normal gridlines back.
     SPAN_GROUP_CELL_CLASS = 'span-group-cell' if PCON24CD is None else ''
     SPAN_GROUP_HEADER_CLASS = 'span-group-header' if PCON24CD is None else ''
@@ -489,7 +476,7 @@ def _build_all_petitions_columndefs(PCON24CD):
          'cellRenderer': 'markdown', 'cellClass': f'no-constituency-message {SPAN_GROUP_CELL_CLASS}',
          'headerClass': SPAN_GROUP_HEADER_CLASS,
          'valueGetter': {'function': f"{_ALL_PETITIONS_IS_TARGET_ROW} ? 'Select a constituency  \\n(see top right)' : ''"},
-         'colSpan': {'function': f"{_ALL_PETITIONS_IS_TARGET_ROW} ? 7 : 1"},
+         'colSpan': {'function': f"{_ALL_PETITIONS_IS_TARGET_ROW} ? 4 : 1"},
          'flex': 1, 'minWidth': 160}
         if PCON24CD is None else
         {'field': 'signature_count', 'headerName': 'No. of sigs in constituency',
@@ -508,48 +495,26 @@ def _build_all_petitions_columndefs(PCON24CD):
         {'field': 'months_open_rank', 'headerName': 'Months open', 'flex': 0.8, 'minWidth': 110,
          'valueFormatter': MONTHS_OPEN_FORMAT,
          'headerComponentParams': {'template': MONTHS_OPEN_HEADER_TEMPLATE}},
-        {'field': 'total_signature_count', 'headerName': 'Total no. of sigs',
-            'valueFormatter': _ALL_PETITIONS_NUMBER_FORMAT, 'flex': 1, 'minWidth': 130},
         {'field': 'debate_sort_key', 'headerName': 'Scheduled debate\ndate', 'flex': 0.65, 'minWidth': 140,
          'valueFormatter': {'function': "params.data.debate_display || ''"},
          'cellClass': {'function': "'debate-cell' + (params.data.is_past_debate ? ' past-debate-date' : '')"},
          'wrapText': True, 'autoHeight': True,
          'headerComponentParams': {'template': SCHEDULED_DEBATE_HEADER_TEMPLATE}},
-        {
-            'headerName': 'Metrics based on no. of sigs',
-            'headerClass': 'centered-group-header',
-            'children': [
-                signature_count_coldef,
-                {'field': 'sig_rank_raw', 'headerName': 'Ranking based on no. of sigs',
-                 'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
-                 'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
-                 'wrapText': True, 'autoHeight': True,
-                 'headerComponentParams': {'template': SIG_RANK_RAW_HEADER_TEMPLATE}},
-                {'field': 'percentile_rank_raw', 'headerName': 'Ranking as percentile', 'flex': 1, 'minWidth': 150,
-                 'valueFormatter': PERCENTILE_CATEGORY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
-                 'headerClass': SPAN_GROUP_HEADER_CLASS},
-                {'field': 'sig_prop_of_total', 'headerName': 'No. of sigs as prop of all sigs (%)', 'flex': 1, 'minWidth': 170,
-                 'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
-                 'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
-            ]
-        },
-        {
-            'headerName': 'Metrics based on sigs as % of electorate',
-            'headerClass': 'centered-group-header',
-            'children': [
-                {'field': 'sig_prop_electorate', 'headerName': 'No. of sigs as % of electorate', 'flex': 1, 'minWidth': 170,
-                 'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
-                 'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
-                {'field': 'sig_prop_electorate_rank', 'headerName': 'Ranking based on no. of sigs/electorate',
-                 'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
-                 'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
-                 'wrapText': True, 'autoHeight': True,
-                 'headerComponentParams': {'template': SIG_PROP_ELECTORATE_RANK_HEADER_TEMPLATE}},
-                {'field': 'percentile_rank_electorate', 'headerName': 'Ranking as percentile', 'flex': 1, 'minWidth': 170,
-                 'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS,
-                 'valueFormatter': PERCENTILE_CATEGORY_FORMAT},
-            ]
-        },
+        {'field': 'total_signature_count', 'headerName': 'Total no. of sigs',
+            'valueFormatter': _ALL_PETITIONS_NUMBER_FORMAT, 'flex': 1, 'minWidth': 130},
+        signature_count_coldef,
+        {'field': 'sig_prop_electorate', 'headerName': 'No. of sigs as % of electorate', 'flex': 1, 'minWidth': 170,
+         'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
+         'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
+        {'field': 'sig_prop_electorate_rank', 'headerName': 'Ranking based on no. of sigs/electorate',
+         'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
+         'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
+         'wrapText': True, 'autoHeight': True,
+         'headerComponentParams': {'template': SIG_PROP_ELECTORATE_RANK_HEADER_TEMPLATE}},
+        {'field': 'percentile_rank_electorate', 'headerName': 'Ranking as percentile', 'flex': 0.6, 'minWidth': 110,
+         'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS,
+         'valueFormatter': PERCENTILE_CATEGORY_FORMAT,
+         'wrapText': True, 'autoHeight': True},
     ]
 
 
@@ -584,11 +549,10 @@ def build_all_petitions_table():
 
     return html.Div([
         table,
-        dbc.Tooltip(RANK_INFO_TEXT, target=SIG_RANK_RAW_INFO_ICON_ID, placement='top'),
         dbc.Tooltip(RANK_INFO_TEXT, target=SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID, placement='top'),
         dbc.Tooltip(SCHEDULED_DEBATE_INFO_TEXT, target=SCHEDULED_DEBATE_INFO_ICON_ID, placement='top'),
         dbc.Tooltip(MONTHS_OPEN_INFO_TEXT, target=MONTHS_OPEN_INFO_ICON_ID, placement='top'),
-    ], style={'overflowX': 'auto', 'width': '100%'})
+    ], style={'width': '100%'})
 
 
 def wrap_text(text, width=50):
@@ -721,10 +685,38 @@ def render_signature_histogram(df, median_value, highlight_value=None, constitue
         highlight_bin = min(max(highlight_bin, 0), len(counts) - 1)
         bar_colors[highlight_bin] = '#40a583'
 
+    count_labels = [
+        f"{c} constituency" if c == 1 else f"{c} constituencies"
+        for c in counts
+    ]
+
+    # Bin index of each row, computed the same way as highlight_bin above, so it's
+    # guaranteed consistent with how np.histogram assigned rows to `counts`.
+    bin_indices = np.searchsorted(bin_edges, values.values, side='right') - 1
+    bin_indices = np.clip(bin_indices, 0, len(counts) - 1)
+    names_by_bin = (
+        pd.Series(df['constituency_name'].values, index=bin_indices)
+        .groupby(level=0).apply(sorted)
+    )
+
+    constituency_lists = []
+    for i, c in enumerate(counts):
+        if 0 < c <= 5:
+            names = names_by_bin.get(i, [])
+            header = "The constituency in this interval is:" if c == 1 else "Constituencies in this interval are:"
+            bullets = "<br>&nbsp; &nbsp;".join(f"• {n} &nbsp; &nbsp;" for n in names)
+            constituency_lists.append(f"<br>&nbsp;<br>&nbsp; &nbsp;{header} &nbsp; &nbsp;<br>&nbsp; &nbsp;{bullets}")
+        else:
+            constituency_lists.append("")
+
     fig = go.Figure(go.Bar(
         x=bin_centers, y=counts, width=bin_widths, marker_color=bar_colors,
         text=bin_labels, textposition='none',
-        hovertemplate='&nbsp;<br>&nbsp; &nbsp;%{y} constituencies &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;<br>&nbsp;<extra></extra>',
+        customdata=list(zip(count_labels, constituency_lists)),
+        hovertemplate=(
+            '&nbsp;<br>&nbsp; &nbsp;%{customdata[0]} &nbsp; &nbsp;<br>&nbsp; &nbsp;%{text} &nbsp; &nbsp;'
+            '%{customdata[1]}<br>&nbsp;<extra></extra>'
+        ),
         hoverlabel=dict(bgcolor='white', font_color='#333'),
         showlegend=False
     ))
@@ -1388,7 +1380,7 @@ constituency_dropdown = dcc.Dropdown(
     id='analytics-petition-dropdown',
     options=[
         {'label': row['constituency_name'], 'value': row['PCON24CD']}
-        for _, row in pcon24cds.iterrows()
+        for _, row in pcon24cds.sort_values('constituency_name').iterrows()
     ],
     placeholder='Select a constituency',
     clearable=False,
@@ -1451,7 +1443,7 @@ banner = dbc.Navbar(
 # ── App layout ────────────────────────────────────────────
 
 app.layout = html.Div([
-    dcc.Location(id='url', refresh=True),
+    dcc.Location(id='url', refresh=False),
     banner,
     dbc.Container([
         dcc.Tabs(id='main-tabs', value='tab-1', children=[
@@ -1597,7 +1589,7 @@ app.layout = html.Div([
                             html.Label("Select a Petition:", className="fw-bold mb-0"),
                             width="auto", className="d-flex align-items-center"
                         ),
-                        dbc.Col(petition_dropdown, width=6),
+                        dbc.Col(petition_dropdown, width="auto", style={'width': '780px', 'maxWidth': '780px'}),
                     ], className="g-2 align-items-center", style={'marginBottom': '14px'}),
 
                     dbc.Row([
@@ -1674,8 +1666,6 @@ app.layout = html.Div([
                                 dbc.Col([
                                     dbc.Card(
                                         dbc.CardBody([
-                                            html.H6("No. of sigs as % of electorate", className="mb-2 text-center",
-                                                    style={'fontSize': '15px', 'fontWeight': 'bold'}),
                                             html.Div(id='petition-top-constituencies-table', style={'flex': '1', 'minHeight': '0', 'overflowY': 'auto'})
                                         ], className="pt-2 pb-2", style={'height': '100%', 'display': 'flex', 'flexDirection': 'column'}),
                                         className="shadow-sm h-100", style={'borderRadius': '10px'}
@@ -1721,47 +1711,55 @@ app.layout = html.Div([
                         dbc.Col(
                             html.Div([
                                 html.A(
-                                    "Overview", href="#about-section-overview",
+                                    "Overview", href="#overview",
                                     className="d-block mb-2"
                                 ),
                                 html.A(
-                                    "Background", href="#about-section-background",
+                                    "Background", href="#background",
                                     className="d-block mb-2"
                                 ),
                                 html.A(
-                                    "Technical notes", href="#about-section-technical-notes",
+                                    "Technical notes", href="#technical-notes",
                                     className="d-block mb-2"
                                 ),
                                 html.A(
                                     "Shortcomings to petition data",
-                                    href="#about-section-shortcomings",
+                                    href="#shortcomings",
                                     className="d-block mb-2 ms-3",
                                     style={'fontSize': '13px'}
                                 ),
                                 html.A(
                                     "Figures may differ to official site",
-                                    href="#about-section-figures-differ",
+                                    href="#figures-differ",
                                     className="d-block mb-2 ms-3",
                                     style={'fontSize': '13px'}
                                 ),
                                 html.A(
                                     "Reasons for using electorate",
-                                    href="#about-section-electorate",
+                                    href="#electorate",
                                     className="d-block mb-2 ms-3",
                                     style={'fontSize': '13px'}
+                                ),
+                                html.A(
+                                    "Contact", href="#contact",
+                                    className="d-block mb-2"
                                 ),
                                 html.A(
                                     "↑ Back to top",
                                     href="#about-page-content",
                                     className="d-block mt-4"
                                 ),
-                            ], className="sticky-top", style={'top': '20px', 'marginTop': '16px'}),
+                            ], className="sticky-top", style={
+                                'top': '20px', 'marginTop': '16px', 'padding': '20px',
+                                'border': '1px solid rgba(0, 0, 0, 0.176)', 'borderRadius': '14px',
+                                'backgroundColor': '#fff'
+                            }),
                             id='about-nav-pane', width=3
                         ),
                         dbc.Col([
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5("Overview", id="about-section-overview", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
+                                    html.H5("Overview", id="overview", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
                                     html.P(
                                         "The UK Petitions Dashboard has been designed as a tool to help MPs "
                                         "and their staff make better use of publicly available data on UK "
@@ -1773,7 +1771,7 @@ app.layout = html.Div([
                             ),
                             dbc.Card(
                                 dbc.CardBody([
-                                    html.H5("Background", id="about-section-background", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
+                                    html.H5("Background", id="background", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
                                     html.P([
                                         "The ",
                                         html.A(
@@ -1811,13 +1809,13 @@ app.layout = html.Div([
                             dbc.Card(
                                 dbc.CardBody([
                             html.H5(
-                                "Technical notes", id="about-section-technical-notes",
+                                "Technical notes", id="technical-notes",
                                 className="mb-3",
                                 style={'textDecoration': 'underline', 'fontSize': '26px'}
                             ),
                             html.H6(
                                 "Shortcomings to petition data",
-                                id="about-section-shortcomings", className="mb-3",
+                                id="shortcomings", className="mb-3",
                                 style={'textDecoration': 'underline', 'fontSize': '19px'}
                             ),
                             html.P(
@@ -1849,7 +1847,7 @@ app.layout = html.Div([
                             ]),
                             html.H6(
                                 "Figures may differ slightly to those on the official petition "
-                                "website", id="about-section-figures-differ",
+                                "website", id="figures-differ",
                                 className="mb-3 mt-5",
                                 style={'textDecoration': 'underline', 'fontSize': '19px'}
                             ),
@@ -1868,7 +1866,7 @@ app.layout = html.Div([
                             html.H6(
                                 "Reasons for using electorate instead of population as base "
                                 "size for proportions",
-                                id="about-section-electorate", className="mb-1 mt-5",
+                                id="electorate", className="mb-1 mt-5",
                                 style={'textDecoration': 'underline', 'fontSize': '19px'}
                             ),
                             html.P(
@@ -1936,7 +1934,26 @@ app.layout = html.Div([
                                 "registered to vote and no restriction on age or citizenship "
                                 "status to sign an e-petition."
                             ),
-                            html.Hr(className="mt-5"),
+                                ]),
+                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                            ),
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("Contact", id="contact", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
+                                    html.P([
+                                        "For any feedback, comments or suggestions, please email ",
+                                        html.A(
+                                            "ukpetitionanalytics@gmail.com",
+                                            href="mailto:ukpetitionanalytics@gmail.com",
+                                        ),
+                                        ". I aim to respond within 2-3 working days.",
+                                    ]),
+                                ]),
+                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                            ),
+                            dbc.Card(
+                                dbc.CardBody([
+                            html.Hr(className="mt-0"),
                             html.P([
                                 html.Sup("1", id="about-footnote-1"),
                                 " Tasneem Ghazi, 'Are Online Petitions Useful?', ",
@@ -1994,7 +2011,8 @@ app.layout = html.Div([
                                 " ONS, 'Combining and Comparing Census Figures across the UK'.",
                             ], style={'fontSize': '13px'}),
                                 ]),
-                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                                className="mb-4",
+                                style={'borderRadius': '14px', 'border': 'none', 'marginTop': '40px'}
                             ),
                         ], width=8)
                     ])
@@ -2012,6 +2030,33 @@ app.layout = html.Div([
 #####################
 
 # ── Top nav (drives the hidden dcc.Tabs) ──────────────────
+#
+# Each tab gets its own URL (/, /petition-overview, /all-open-petitions, /about).
+# Clicking a nav link updates the URL (navlink_to_url); the URL is the single
+# source of truth for which tab/navlink is active (switch_tab), so a direct
+# link, a page refresh, or the browser back/forward buttons all land on the
+# right tab too. Dash's default catch-all route already serves the app's
+# index page for any path, so a direct request/refresh doesn't 404.
+
+TAB_PATHS = {
+    'tab-1-navlink': '/constituency-overview',
+    'tab-2-navlink': '/petition-overview',
+    'tab-3-navlink': '/all-open-petitions',
+    'tab-4-navlink': '/about',
+}
+
+
+@app.callback(
+    Output('url', 'pathname'),
+    Input('tab-1-navlink', 'n_clicks'),
+    Input('tab-2-navlink', 'n_clicks'),
+    Input('tab-3-navlink', 'n_clicks'),
+    Input('tab-4-navlink', 'n_clicks'),
+    prevent_initial_call=True
+)
+def navlink_to_url(_n1, _n2, _n3, _n4):
+    return TAB_PATHS.get(ctx.triggered_id, '/')
+
 
 @app.callback(
     Output('main-tabs', 'value'),
@@ -2019,18 +2064,14 @@ app.layout = html.Div([
     Output('tab-2-navlink', 'active'),
     Output('tab-3-navlink', 'active'),
     Output('tab-4-navlink', 'active'),
-    Input('tab-1-navlink', 'n_clicks'),
-    Input('tab-2-navlink', 'n_clicks'),
-    Input('tab-3-navlink', 'n_clicks'),
-    Input('tab-4-navlink', 'n_clicks'),
-    prevent_initial_call=True
+    Input('url', 'pathname'),
 )
-def switch_tab(_n1, _n2, _n3, _n4):
-    if ctx.triggered_id == 'tab-2-navlink':
+def switch_tab(pathname):
+    if pathname == '/petition-overview':
         return 'tab-2', False, True, False, False
-    if ctx.triggered_id == 'tab-3-navlink':
+    if pathname == '/all-open-petitions':
         return 'tab-3', False, False, True, False
-    if ctx.triggered_id == 'tab-4-navlink':
+    if pathname == '/about':
         return 'tab-4', False, False, False, True
     return 'tab-1', True, False, False, False
 
@@ -2321,7 +2362,7 @@ def update_graph(petition_id, PCON24CD):
         if pd.notna(sig_prop_electorate_rank) else (no_constituency if PCON24CD is None else no_ranking)
     )
 
-    top_constituencies = df[['constituency_name', 'sig_prop_electorate']] \
+    top_constituencies = df[['constituency_name', 'sig_prop_electorate', 'signature_count']] \
         .sort_values('sig_prop_electorate', ascending=False) \
         .reset_index(drop=True)
 
@@ -2334,6 +2375,9 @@ def update_graph(petition_id, PCON24CD):
              'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
              'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center',
              'sort': 'desc'},
+            {'field': 'signature_count', 'headerName': 'Number of signatures',
+             'valueFormatter': {'function': "params.value == null ? '' : params.value.toLocaleString()"},
+             'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center'},
         ],
         defaultColDef={'sortable': True, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
         dashGridOptions={'domLayout': 'autoHeight', 'unSortIcon': True},
