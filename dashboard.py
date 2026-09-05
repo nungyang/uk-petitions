@@ -269,18 +269,10 @@ RANK_DISPLAY_FORMAT = {'function': (
     f"params.value == null || params.value === 0 ? '' : params.value + ' of {TOTAL_CONSTITUENCIES} constituencies'"
 )}
 
-# "?" info icon appended to the "Ranking based on no. of sigs/electorate" header,
-# explaining via a dbc.Tooltip (added alongside the table below) why a petition's
-# ranking can be blank — it's suppressed for petitions with under 10,000 signatures
-# (see the total_signature_count <= 10000 filtering above). A dbc.Tooltip is used
-# instead of a native title attribute because native tooltips are unreliable — some
-# browsers/embedded webviews cancel them if the hovered element's ancestors mutate
-# (as AG Grid's header cells do while re-laying-out after a constituency is selected).
-# The icon itself still needs AG Grid's header template override (the default
-# agColumnHeader template, docs' "Header Templates" page, with one extra <span> spliced
-# in) since headerName is plain text and can't hold markup.
+# Explains via a "?" tooltip why a petition's signature-rate ranking can be blank —
+# it's suppressed for petitions with under 10,000 signatures (see the
+# total_signature_count <= 10000 filtering above).
 RANK_INFO_TEXT = "Ranking only shows for petitions with 10,000 or more signatures"
-SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID = 'sig-prop-electorate-rank-info-icon'
 
 VIEW_PETITION_BTN_STYLE = {
     'position': 'absolute', 'top': '14px', 'right': '18px',
@@ -308,7 +300,28 @@ def make_header_info_icon_template(icon_id):
 '''
 
 
-SIG_PROP_ELECTORATE_RANK_HEADER_TEMPLATE = make_header_info_icon_template(SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID)
+# Explains how "signature rate" is calculated, wherever it's shown as a stat-box value
+SIGNATURE_RATE_LABEL = "Signature rate (% of electorate)"
+SIGNATURE_RATE_INFO_TEXT = "Signature rate is calculated as (number of signatures)/(size of electorate)* 100"
+
+# Same pattern for the "All data" table's "Signature rate" header.
+SIGNATURE_RATE_HEADER_INFO_ICON_ID = 'signature-rate-header-info-icon'
+SIGNATURE_RATE_HEADER_TEMPLATE = make_header_info_icon_template(SIGNATURE_RATE_HEADER_INFO_ICON_ID)
+
+TOP5_PERCENT_TITLE_INFO_ICON_ID = 'top5-percent-title-info-icon'
+
+
+def top5_percent_title_text(text):
+    return html.Span([
+        text + " ",
+        html.Span("?", id=TOP5_PERCENT_TITLE_INFO_ICON_ID, style={
+            'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
+            'width': '16px', 'height': '16px', 'flexShrink': '0', 'borderRadius': '50%',
+            'border': '1px solid #6c757d', 'color': '#6c757d',
+            'fontSize': '11px', 'cursor': 'pointer', 'verticalAlign': 'middle'
+        }),
+        dbc.Tooltip(SIGNATURE_RATE_INFO_TEXT, target=TOP5_PERCENT_TITLE_INFO_ICON_ID, placement='top'),
+    ])
 
 # Same pattern for the "Scheduled debate date" header — explains the 100,000-signature
 # debate threshold and the greyed-out-past-debate styling (see .past-debate-date).
@@ -490,15 +503,15 @@ def _build_all_petitions_columndefs(PCON24CD):
     SPAN_GROUP_HEADER_CLASS = 'span-group-header' if PCON24CD is None else ''
 
     signature_count_coldef = (
-        {'field': 'signature_count', 'headerName': 'No. of sigs in constituency',
+        {'field': 'signature_count', 'headerName': 'No. of sigs in\nconstituency',
          'cellRenderer': 'markdown', 'cellClass': f'no-constituency-message {SPAN_GROUP_CELL_CLASS}',
-         'headerClass': SPAN_GROUP_HEADER_CLASS,
+         'headerClass': SPAN_GROUP_HEADER_CLASS, 'sortable': True,
          'valueGetter': {'function': f"{_ALL_PETITIONS_IS_TARGET_ROW} ? 'Select a constituency  \\n(see top right)' : ''"},
          'colSpan': {'function': f"{_ALL_PETITIONS_IS_TARGET_ROW} ? 4 : 1"},
-         'flex': 1, 'minWidth': 160}
+         'flex': 0.9, 'minWidth': 155}
         if PCON24CD is None else
-        {'field': 'signature_count', 'headerName': 'No. of sigs in constituency',
-         'valueFormatter': _ALL_PETITIONS_NUMBER_FORMAT, 'flex': 1, 'minWidth': 160}
+        {'field': 'signature_count', 'headerName': 'No. of sigs in\nconstituency',
+         'valueFormatter': _ALL_PETITIONS_NUMBER_FORMAT, 'flex': 0.9, 'minWidth': 155}
     )
 
     return [
@@ -518,18 +531,18 @@ def _build_all_petitions_columndefs(PCON24CD):
          'cellClass': {'function': "'debate-cell' + (params.data.is_past_debate ? ' past-debate-date' : '')"},
          'wrapText': True, 'autoHeight': True,
          'headerComponentParams': {'template': SCHEDULED_DEBATE_HEADER_TEMPLATE}},
-        {'field': 'total_signature_count', 'headerName': 'Total no. of sigs',
-            'valueFormatter': _ALL_PETITIONS_NUMBER_FORMAT, 'flex': 1, 'minWidth': 130},
+        {'field': 'total_signature_count', 'headerName': 'Total no.\nof sigs',
+            'valueFormatter': _ALL_PETITIONS_NUMBER_FORMAT, 'flex': 0.7, 'minWidth': 125},
         signature_count_coldef,
-        {'field': 'sig_prop_electorate', 'headerName': 'No. of sigs as % of electorate', 'flex': 1, 'minWidth': 170,
+        {'field': 'sig_prop_electorate', 'headerName': 'Signature rate', 'flex': 0.75, 'minWidth': 125,
          'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
-         'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS},
-        {'field': 'sig_prop_electorate_rank', 'headerName': 'Ranking based on no. of sigs/electorate',
+         'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': f'{SPAN_GROUP_HEADER_CLASS} ag-header-center'.strip(),
+         'headerComponentParams': {'template': SIGNATURE_RATE_HEADER_TEMPLATE}},
+        {'field': 'sig_prop_electorate_rank', 'headerName': 'Ranking based on sig rate',
          'valueFormatter': RANK_DISPLAY_FORMAT, 'cellClass': SPAN_GROUP_CELL_CLASS,
          'headerClass': SPAN_GROUP_HEADER_CLASS, 'flex': 1, 'minWidth': 170,
-         'wrapText': True, 'autoHeight': True,
-         'headerComponentParams': {'template': SIG_PROP_ELECTORATE_RANK_HEADER_TEMPLATE}},
-        {'field': 'percentile_rank_electorate', 'headerName': 'Ranking as percentile', 'flex': 0.6, 'minWidth': 110,
+         'wrapText': True, 'autoHeight': True},
+        {'field': 'percentile_rank_electorate', 'headerName': 'Ranking as percentile', 'flex': 0.6, 'minWidth': 130,
          'cellClass': SPAN_GROUP_CELL_CLASS, 'headerClass': SPAN_GROUP_HEADER_CLASS,
          'valueFormatter': PERCENTILE_CATEGORY_FORMAT,
          'wrapText': True, 'autoHeight': True},
@@ -559,7 +572,13 @@ def build_all_petitions_table():
                          # correct, so there's nothing left to visibly snap into place.
                          # autoHeaderHeight stays on as a safety net if that ever changes.
                          'headerHeight': 62,
-                         'enableCellSpan': True},
+                         'enableCellSpan': True,
+                         # ag-Grid defaults animateRows to True, which slides each row into
+                         # its position via a CSS transform transition whenever the grid
+                         # (re)renders - including the very first render. Combined with
+                         # domLayout='autoHeight' that reads as the whole table panning
+                         # open from top to bottom on mount. Not wanted here.
+                         'animateRows': False},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
         style={'width': '100%'},
@@ -567,9 +586,9 @@ def build_all_petitions_table():
 
     return html.Div([
         table,
-        dbc.Tooltip(RANK_INFO_TEXT, target=SIG_PROP_ELECTORATE_RANK_INFO_ICON_ID, placement='top'),
         dbc.Tooltip(SCHEDULED_DEBATE_INFO_TEXT, target=SCHEDULED_DEBATE_INFO_ICON_ID, placement='top'),
         dbc.Tooltip(MONTHS_OPEN_INFO_TEXT, target=MONTHS_OPEN_INFO_ICON_ID, placement='top'),
+        dbc.Tooltip(SIGNATURE_RATE_INFO_TEXT, target=SIGNATURE_RATE_HEADER_INFO_ICON_ID, placement='top'),
     ], style={'width': '100%'})
 
 
@@ -1035,14 +1054,14 @@ app.index_string = '''
                 background-color: #f2f2f2 !important;
             }
 
-            /* wrapText cells anchor their content to the top of the row by default,
-               which leaves "To be considered for debate" sitting at the top of any
-               row made taller by a longer petition title in another column — centre
-               it vertically instead. */
+            /* Horizontally centre the debate-date cell's (possibly wrapped) text,
+               same as every other column, while still anchoring it to the top of
+               the row like the rest of the table. */
             .debate-cell {
                 display: flex !important;
-                align-items: center !important;
+                align-items: flex-start !important;
                 justify-content: center !important;
+                padding-top: 12px !important;
             }
 
             /* ag-Grid's default line-height for wrapped cell text is driven by row
@@ -1056,9 +1075,10 @@ app.index_string = '''
             /* Non-wrapped cells sit a constant 12px below the cell's top edge
                regardless of row height (a quirk of ag-Grid's default line-height,
                not actual vertical centering). wrapText cells default to flush-top
-               instead, so match that same 12px gap here — except .debate-cell,
-               which is deliberately centred and would conflict with a fixed offset. */
-            #all-petitions-datatable .ag-cell-wrap-text:not(.debate-cell) {
+               instead, so match that same 12px gap here (.debate-cell gets its own
+               copy of this above, since it needs !important to override its flex
+               centring). */
+            #all-petitions-datatable .ag-cell-wrap-text {
                 padding-top: 12px;
             }
 
@@ -1368,7 +1388,7 @@ else:
              'headerClass': 'ag-header-center', 'cellStyle': {'textAlign': 'center'}},
         ],
         defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
-        dashGridOptions={'domLayout': 'autoHeight'},
+        dashGridOptions={'domLayout': 'autoHeight', 'animateRows': False},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
         style={'width': '100%'},
@@ -1562,15 +1582,26 @@ app.layout = html.Div([
                                                 ], className="shadow-sm mb-2", style={'borderRadius': '14px'}),
                                                 dbc.Card([
                                                     dbc.CardBody([
-                                                        html.H6("No. of sigs as % of electorate", className="text-muted",
-                                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                                        html.H6(
+                                                            html.Span([
+                                                                SIGNATURE_RATE_LABEL + " ",
+                                                                html.Span("?", id="debate-signature-rate-info-icon", style={
+                                                                    'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
+                                                                    'width': '16px', 'height': '16px', 'flexShrink': '0', 'borderRadius': '50%',
+                                                                    'border': '1px solid #6c757d', 'color': '#6c757d',
+                                                                    'fontSize': '11px', 'cursor': 'pointer', 'verticalAlign': 'middle'
+                                                                }),
+                                                                dbc.Tooltip(SIGNATURE_RATE_INFO_TEXT, target="debate-signature-rate-info-icon", placement="top"),
+                                                            ]),
+                                                            className="text-muted",
+                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
                                                         html.Div(html.H5(id='debate-sig-prop-electorate-box', className="mb-0"),
                                                                  style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
                                                     ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
                                                 ], className="shadow-sm mb-2", style={'borderRadius': '14px'}),
                                                 dbc.Card([
                                                     dbc.CardBody([
-                                                        html.H6("Ranking based on no. of sigs as % of electorate", className="text-muted",
+                                                        html.H6("Ranking based on signature rate", className="text-muted",
                                                                 style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
                                                         html.Div(html.H5(id='debate-ranking-box', className="mb-0"),
                                                                  style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
@@ -1658,8 +1689,21 @@ app.layout = html.Div([
                                 dbc.Col([
                                     dbc.Card([
                                         dbc.CardBody([
-                                            html.H6("Median signature rate", className="text-muted",
-                                                    style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                            html.H6(
+                                                html.Span([
+                                                    "Median signature rate", html.Br(),
+                                                    "(% of electorate) ",
+                                                    html.Span("?", id="petition-median-sig-rate-info-icon", style={
+                                                        'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
+                                                        'width': '16px', 'height': '16px', 'flexShrink': '0', 'borderRadius': '50%',
+                                                        'border': '1px solid #6c757d', 'color': '#6c757d',
+                                                        'fontSize': '11px', 'cursor': 'pointer', 'verticalAlign': 'middle'
+                                                    }),
+                                                    dbc.Tooltip(SIGNATURE_RATE_INFO_TEXT, target="petition-median-sig-rate-info-icon", placement="top"),
+                                                ]),
+                                                className="text-muted",
+                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px',
+                                                       'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center', 'textAlign': 'center'}),
                                             html.Div(html.H5(id='petition-median-sig-rate-box', className="mb-0"),
                                                      style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
                                         ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 6px'})
@@ -1668,8 +1712,19 @@ app.layout = html.Div([
                                 dbc.Col([
                                     dbc.Card([
                                         dbc.CardBody([
-                                            html.H6("No. of sigs as % of electorate", className="text-muted",
-                                                    style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                            html.H6(
+                                                html.Span([
+                                                    SIGNATURE_RATE_LABEL + " ",
+                                                    html.Span("?", id="petition-signature-rate-info-icon", style={
+                                                        'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
+                                                        'width': '16px', 'height': '16px', 'flexShrink': '0', 'borderRadius': '50%',
+                                                        'border': '1px solid #6c757d', 'color': '#6c757d',
+                                                        'fontSize': '11px', 'cursor': 'pointer', 'verticalAlign': 'middle'
+                                                    }),
+                                                    dbc.Tooltip(SIGNATURE_RATE_INFO_TEXT, target="petition-signature-rate-info-icon", placement="top"),
+                                                ]),
+                                                className="text-muted",
+                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
                                             html.Div(html.H5(id='petition-sig-prop-electorate-box', className="mb-0"),
                                                      style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
                                         ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 6px'})
@@ -1680,7 +1735,7 @@ app.layout = html.Div([
                                         dbc.CardBody([
                                             html.H6(
                                                 html.Span([
-                                                    "Ranking based on no. of sigs as % of electorate ",
+                                                    "Ranking based on", html.Br(), "signature rate ",
                                                     html.Span("?", id="petition-sig-prop-electorate-rank-info-icon", style={
                                                         'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
                                                         'width': '16px', 'height': '16px', 'flexShrink': '0', 'borderRadius': '50%',
@@ -2171,7 +2226,7 @@ def update_top5_raw(PCON24CD):
 )
 def update_top5_percent(PCON24CD):
     if PCON24CD is None:
-        return "Petitions where your constituency ranks in top 5% of constituencies based on no. of sigs as proportion of electorate", html.Div(
+        return top5_percent_title_text("Petitions where your constituency ranks in top 5% of constituencies based on signature rate"), html.Div(
             NO_CONSTITUENCY_MESSAGE,
             style={
                 'padding': '10px 20px', 'color': '#C0392B', 'fontSize': '16px', 'textAlign': 'center',
@@ -2180,7 +2235,7 @@ def update_top5_percent(PCON24CD):
         )
 
     constituency_name = pcon24cds.loc[pcon24cds['PCON24CD'] == PCON24CD, 'constituency_name'].iloc[0]
-    title = f"Petitions where {constituency_name} ranks in top 5% of constituencies based on no. of sigs as proportion of electorate"
+    title = top5_percent_title_text(f"Petitions where {constituency_name} ranks in top 5% of constituencies based on signature rate")
 
     df = petitions_df[
         (petitions_df['PCON24CD'] == PCON24CD) &
@@ -2194,7 +2249,7 @@ def update_top5_percent(PCON24CD):
 
     if df.empty:
         return title, html.Div(
-            "No petitions currently have this constituency in the top 5% based on sigs as proportion of electorate.",
+            f"No petitions currently have this constituency in the top 5% based on {SIGNATURE_RATE_LABEL.lower()}.",
             style={'padding': '10px 20px', 'color': '#777', 'fontSize': '13px'}
         )
 
@@ -2219,13 +2274,14 @@ def update_top5_percent(PCON24CD):
             {'field': 'rank_display', 'headerName': 'Ranking', 'cellRenderer': 'markdown',
              'cellClass': 'rank-ratio-cell', 'headerClass': 'ag-header-center',
              'flex': 1.1, 'minWidth': 130, 'wrapText': True, 'autoHeight': True},
-            {'field': 'sig_ratio_display', 'headerName': 'No. of sigs as proportion of electorate (%)', 'cellRenderer': 'markdown',
+            {'field': 'sig_ratio_display', 'headerName': SIGNATURE_RATE_LABEL, 'cellRenderer': 'markdown',
              'cellClass': 'sig-ratio-cell', 'headerClass': 'ag-header-center',
              'flex': 1.3, 'minWidth': 120, 'wrapText': True, 'autoHeight': True},
         ],
         defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
         dashGridOptions={
             'domLayout': 'autoHeight',
+            'animateRows': False,
             'onRowDataUpdated': {'function': 'setTimeout(function(){ params.api.resetRowHeights(); }, 50)'},
             'onFirstDataRendered': {'function': 'setTimeout(function(){ params.api.resetRowHeights(); }, 50)'},
         },
@@ -2311,7 +2367,7 @@ def update_debate_section(petition_id, PCON24CD):
 
     fig = render_signature_histogram(
         df, df['sig_prop_electorate'].median(), sig_prop_electorate, constituency_name,
-        value_col='sig_prop_electorate', x_axis_title='No. of sigs as % of electorate',
+        value_col='sig_prop_electorate', x_axis_title=SIGNATURE_RATE_LABEL,
         bin_unit_label='% of electorate', value_fmt=lambda v: f"{v:.2f}%", discrete=False,
         tick_format='.2f', tick_suffix='%', hide_zero_tick=True
     )
@@ -2417,7 +2473,7 @@ def update_graph(petition_id, PCON24CD):
 
     histogram_fig = render_signature_histogram(
         df, median_sig_rate, sig_prop_electorate, constituency_name,
-        value_col='sig_prop_electorate', x_axis_title='No. of sigs as % of electorate',
+        value_col='sig_prop_electorate', x_axis_title=SIGNATURE_RATE_LABEL,
         bin_unit_label='% of electorate', value_fmt=lambda v: f"{v:.3f}%", discrete=False,
         tick_format='.3f', tick_suffix='%', hide_zero_tick=True
     )
@@ -2450,7 +2506,7 @@ def update_graph(petition_id, PCON24CD):
         rowData=top_constituencies.to_dict('records'),
         columnDefs=[
             {'field': 'constituency_name', 'headerName': 'Constituency', 'flex': 2, 'minWidth': 180},
-            {'field': 'sig_prop_electorate', 'headerName': 'No. of sigs as % of electorate',
+            {'field': 'sig_prop_electorate', 'headerName': 'Signature rate',
              'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(3) + '%'"},
              'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center',
              'sort': 'desc'},
