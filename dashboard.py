@@ -18,6 +18,7 @@ from functools import lru_cache
 import boto3
 import pandas as pd
 import numpy as np
+from statsmodels.stats.stattools import medcouple
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, Output, Input, html, ctx
@@ -350,6 +351,23 @@ def percentile_category(value):
     if value <= 50:
         return 'Top 50%'
     return 'Bottom 50%'
+
+
+def calculate_upperfence(data):
+    """Skew-adjusted boxplot upper fence (medcouple method) used to flag outlier
+    constituencies on the Petition Overview table."""
+    data = np.asarray(sorted(data))
+    q1 = np.percentile(data, 25)
+    q3 = np.percentile(data, 75)
+    iqr = q3 - q1
+    mc = medcouple(data)
+
+    if mc >= 0:
+        upper_fence = q3 + 1.5 * np.exp(3 * mc) * iqr
+    else:
+        upper_fence = q3 + 1.5 * np.exp(4 * mc) * iqr
+
+    return upper_fence
 
 
 # ── All Petitions table (shared builders) ──────────────────
@@ -1384,7 +1402,9 @@ constituency_dropdown = dcc.Dropdown(
     ],
     placeholder='Select a constituency',
     clearable=False,
-    style={'width': '320px'}
+    style={'width': '320px'},
+    persistence=True,
+    persistence_type='local',
 )
 
 NO_CONSTITUENCY_MESSAGE = "Select a constituency from the dropdown (see top right)"
@@ -1424,7 +1444,7 @@ page_nav = dbc.Nav([
     dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True, className="page-navlink-wrap"),
     dbc.NavLink("Petition Overview", id='tab-2-navlink', active=False, className="page-navlink-wrap"),
     dbc.NavLink("All Open Petitions", id='tab-3-navlink', active=False, className="page-navlink-wrap"),
-], pills=True, className="gap-4 align-items-center")
+], pills=True, className="gap-5 align-items-center")
 
 banner = dbc.Navbar(
     dbc.Container([
@@ -1529,42 +1549,45 @@ app.layout = html.Div([
                                         debate_date_dropdown
                                     ], className="mb-2 d-flex align-items-center justify-content-center"),
                                     html.Div(upcoming_debate_dropdown, className="mb-4"),
-                                    dbc.Row([
-                                        dbc.Col([
-                                            dbc.Card([
-                                                dbc.CardBody([
-                                                    html.H6("Total number of signatures (all constituencies)", className="text-muted",
-                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
-                                                    html.Div(html.H5(id='debate-constituency-votes-box', className="mb-0"),
-                                                             style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
-                                            ], className="shadow-sm mb-2", style={'borderRadius': '14px'}),
-                                            dbc.Card([
-                                                dbc.CardBody([
-                                                    html.H6("No. of sigs as % of electorate", className="text-muted",
-                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
-                                                    html.Div(html.H5(id='debate-sig-prop-electorate-box', className="mb-0"),
-                                                             style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
-                                            ], className="shadow-sm mb-2", style={'borderRadius': '14px'}),
-                                            dbc.Card([
-                                                dbc.CardBody([
-                                                    html.H6("Ranking based on no. of sigs as % of electorate", className="text-muted",
-                                                            style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
-                                                    html.Div(html.H5(id='debate-ranking-box', className="mb-0"),
-                                                             style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                                ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
-                                            ], className="shadow-sm", style={'borderRadius': '14px'}),
-                                        ], style={'flex': '0 0 22%', 'maxWidth': '22%'}),
-                                        dbc.Col([
-                                            dcc.Graph(
-                                                id='upcoming-debates-histogram',
-                                                style={'height': '350px'},
-                                                config={'displayModeBar': False, 'doubleClick': False, 'scrollZoom': False}
-                                            )
-                                        ], style={'flex': '0 0 78%', 'maxWidth': '78%'}),
-                                    ], className="g-2 mb-2"),
-                                ], className="pt-3 pb-2", style={'position': 'relative'}),
+                                    html.Div(
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dbc.Card([
+                                                    dbc.CardBody([
+                                                        html.H6("Total no. of sigs", className="text-muted",
+                                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                                        html.Div(html.H5(id='debate-constituency-votes-box', className="mb-0"),
+                                                                 style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                                    ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                                                ], className="shadow-sm mb-2", style={'borderRadius': '14px'}),
+                                                dbc.Card([
+                                                    dbc.CardBody([
+                                                        html.H6("No. of sigs as % of electorate", className="text-muted",
+                                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                                        html.Div(html.H5(id='debate-sig-prop-electorate-box', className="mb-0"),
+                                                                 style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                                    ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                                                ], className="shadow-sm mb-2", style={'borderRadius': '14px'}),
+                                                dbc.Card([
+                                                    dbc.CardBody([
+                                                        html.H6("Ranking based on no. of sigs as % of electorate", className="text-muted",
+                                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '12px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                                        html.Div(html.H5(id='debate-ranking-box', className="mb-0"),
+                                                                 style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                                    ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 8px'})
+                                                ], className="shadow-sm", style={'borderRadius': '14px'}),
+                                            ], style={'flex': '0 0 22%', 'maxWidth': '22%'}),
+                                            dbc.Col([
+                                                dcc.Graph(
+                                                    id='upcoming-debates-histogram',
+                                                    style={'height': '350px'},
+                                                    config={'displayModeBar': False, 'doubleClick': False, 'scrollZoom': False}
+                                                )
+                                            ], style={'flex': '0 0 78%', 'maxWidth': '78%'}),
+                                        ], className="g-2 mb-2", style={'width': '100%'}),
+                                        style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'width': '100%'}
+                                    ),
+                                ], className="pt-3 pb-2", style={'position': 'relative', 'display': 'flex', 'flexDirection': 'column', 'height': '100%'}),
                                 className="shadow-sm h-100", style={'borderRadius': '14px'}
                             )
                         ], style={'flex': '0 0 61%', 'maxWidth': '61%'})
@@ -1635,41 +1658,49 @@ app.layout = html.Div([
                                 dbc.Col([
                                     dbc.Card([
                                         dbc.CardBody([
-                                            html.H6("No. of sigs as % of electorate", className="text-muted",
-                                                    style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
-                                            html.Div(html.H5(id='petition-sig-prop-electorate-box', className="mb-0"),
+                                            html.H6("Median signature rate", className="text-muted",
+                                                    style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                            html.Div(html.H5(id='petition-median-sig-rate-box', className="mb-0"),
                                                      style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                        ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '5px 6px'})
+                                        ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 6px'})
                                     ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                ], width=6),
+                                ], width=4),
                                 dbc.Col([
                                     dbc.Card([
                                         dbc.CardBody([
-                                            html.H6([
-                                                "Ranking based on no. of sigs as % of electorate ",
-                                                html.Span("?", id="petition-sig-prop-electorate-rank-info-icon", style={
-                                                    'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
-                                                    'width': '16px', 'height': '16px', 'borderRadius': '50%',
-                                                    'border': '1px solid #6c757d', 'color': '#6c757d',
-                                                    'fontSize': '11px', 'cursor': 'pointer', 'verticalAlign': 'middle'
-                                                }),
-                                                dbc.Tooltip(RANK_INFO_TEXT, target="petition-sig-prop-electorate-rank-info-icon", placement="top"),
-                                            ], className="text-muted",
-                                                    style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'textAlign': 'center'}),
+                                            html.H6("No. of sigs as % of electorate", className="text-muted",
+                                                    style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+                                            html.Div(html.H5(id='petition-sig-prop-electorate-box', className="mb-0"),
+                                                     style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
+                                        ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 6px'})
+                                    ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
+                                ], width=4),
+                                dbc.Col([
+                                    dbc.Card([
+                                        dbc.CardBody([
+                                            html.H6(
+                                                html.Span([
+                                                    "Ranking based on no. of sigs as % of electorate ",
+                                                    html.Span("?", id="petition-sig-prop-electorate-rank-info-icon", style={
+                                                        'display': 'inline-flex', 'alignItems': 'center', 'justifyContent': 'center',
+                                                        'width': '16px', 'height': '16px', 'flexShrink': '0', 'borderRadius': '50%',
+                                                        'border': '1px solid #6c757d', 'color': '#6c757d',
+                                                        'fontSize': '11px', 'cursor': 'pointer', 'verticalAlign': 'middle'
+                                                    }),
+                                                    dbc.Tooltip(RANK_INFO_TEXT, target="petition-sig-prop-electorate-rank-info-icon", placement="top"),
+                                                ]),
+                                                className="text-muted",
+                                                style={'fontSize': '12px', 'fontWeight': 'bold', 'marginBottom': '6px', 'height': '34px',
+                                                       'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center', 'textAlign': 'center'}),
                                             html.Div(html.H5(id='petition-sig-prop-electorate-rank-box', className="mb-0"),
                                                      style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'})
-                                        ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '5px 6px'})
+                                        ], className="text-center", style={'display': 'flex', 'flexDirection': 'column', 'height': '100%', 'padding': '8px 6px'})
                                     ], className="shadow-sm h-100", style={'borderRadius': '10px'}),
-                                ], width=6),
+                                ], width=4),
                             ], className="g-2", style={'marginTop': '4px'}),
                             dbc.Row([
                                 dbc.Col([
-                                    dbc.Card(
-                                        dbc.CardBody([
-                                            html.Div(id='petition-top-constituencies-table', style={'flex': '1', 'minHeight': '0', 'overflowY': 'auto'})
-                                        ], className="pt-2 pb-2", style={'height': '100%', 'display': 'flex', 'flexDirection': 'column'}),
-                                        className="shadow-sm h-100", style={'borderRadius': '10px'}
-                                    )
+                                    html.Div(id='petition-top-constituencies-table', style={'flex': '1', 'minHeight': '0'})
                                 ], width=12, style={'height': '100%', 'display': 'flex', 'flexDirection': 'column'}),
                             ], className="g-2", style={'marginTop': '4px', 'flex': '1', 'minHeight': '0'}),
                         ], width=5, style={'display': 'flex', 'flexDirection': 'column', 'height': '100%'}),
@@ -1742,6 +1773,10 @@ app.layout = html.Div([
                                 ),
                                 html.A(
                                     "Contact", href="#contact",
+                                    className="d-block mb-2"
+                                ),
+                                html.A(
+                                    "Licence", href="#licence",
                                     className="d-block mb-2"
                                 ),
                                 html.A(
@@ -1947,6 +1982,27 @@ app.layout = html.Div([
                                             href="mailto:ukpetitionanalytics@gmail.com",
                                         ),
                                         ". I aim to respond within 2-3 working days.",
+                                    ]),
+                                ]),
+                                className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                            ),
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H5("Licence", id="licence", className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'}),
+                                    html.P([
+                                        "This website contains public sector information licensed under the ",
+                                        html.A(
+                                            "Open Government Licence v3.0",
+                                            href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+                                            target="_blank",
+                                        ),
+                                        " and Parliamentary information licensed the ",
+                                        html.A(
+                                            "Open Parliament Licence v3.0",
+                                            href="https://www.parliament.uk/site-information/copyright-parliament/open-parliament-licence/",
+                                            target="_blank",
+                                        ),
+                                        ".",
                                     ]),
                                 ]),
                                 className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
@@ -2287,14 +2343,15 @@ def update_debate_section(petition_id, PCON24CD):
 # Patches the already-mounted 'all-petitions-datatable' grid's rowData/columnDefs
 # directly (see build_all_petitions_table() above) instead of replacing the whole
 # component on every constituency change — see the comment above
-# _petitions_display_base for why. prevent_initial_call=True since the layout
-# already renders the grid's initial (no constituency selected) state.
+# _petitions_display_base for why. Runs on initial load too (no prevent_initial_call)
+# because the constituency dropdown's persisted value may already select a
+# constituency by the time the page first renders, and this grid needs to reflect
+# that rather than sitting on the layout's no-constituency-selected placeholder.
 
 @app.callback(
     Output('all-petitions-datatable', 'rowData'),
     Output('all-petitions-datatable', 'columnDefs'),
     Input('analytics-petition-dropdown', 'value'),
-    prevent_initial_call=True,
 )
 def update_all_petitions_table(PCON24CD):
     return _build_all_petitions_rowdata(PCON24CD), _build_all_petitions_columndefs(PCON24CD)
@@ -2307,6 +2364,7 @@ def update_all_petitions_table(PCON24CD):
     Output('total-sigs', 'children'),
     Output('date-opened', 'children'),
     Output('sch-debate-date', 'children'),
+    Output('petition-median-sig-rate-box', 'children'),
     Output('petition-sig-prop-electorate-box', 'children'),
     Output('petition-sig-prop-electorate-rank-box', 'children'),
     Output('petition-top-constituencies-table', 'children'),
@@ -2345,17 +2403,36 @@ def update_graph(petition_id, PCON24CD):
     )
 
     sig_prop_electorate = constituency_row['sig_prop_electorate'].iloc[0] if constituency_row is not None else None
+    constituency_signature_count = constituency_row['signature_count'].iloc[0] if constituency_row is not None else None
     sig_prop_electorate_rank = constituency_row['sig_prop_electorate_rank'].iloc[0] if constituency_row is not None else None
     sig_prop_electorate_percentile = constituency_row['percentile_rank_electorate'].iloc[0] if constituency_row is not None else None
 
+    median_sig_rate = df['sig_prop_electorate'].median()
+    sorted_by_rate = df.sort_values('sig_prop_electorate').reset_index(drop=True)
+    mid = len(sorted_by_rate) // 2
+    if len(sorted_by_rate) % 2 == 0:
+        median_signature_count = round((sorted_by_rate.loc[mid - 1, 'signature_count'] + sorted_by_rate.loc[mid, 'signature_count']) / 2)
+    else:
+        median_signature_count = sorted_by_rate.loc[mid, 'signature_count']
+
     histogram_fig = render_signature_histogram(
-        df, df['sig_prop_electorate'].median(), sig_prop_electorate, constituency_name,
+        df, median_sig_rate, sig_prop_electorate, constituency_name,
         value_col='sig_prop_electorate', x_axis_title='No. of sigs as % of electorate',
-        bin_unit_label='% of electorate', value_fmt=lambda v: f"{v:.2f}%", discrete=False,
-        tick_format='.2f', tick_suffix='%', hide_zero_tick=True
+        bin_unit_label='% of electorate', value_fmt=lambda v: f"{v:.3f}%", discrete=False,
+        tick_format='.3f', tick_suffix='%', hide_zero_tick=True
     )
 
-    sig_prop_electorate_str = f"{sig_prop_electorate:.2f}%" if sig_prop_electorate is not None else no_constituency
+    median_sig_rate_str = html.Span([
+        f"{median_sig_rate:.2f}%",
+        html.Span(f"({median_signature_count:,.0f} signatures)", style=paren_style)
+    ])
+    sig_prop_electorate_str = (
+        html.Span([
+            f"{sig_prop_electorate:.2f}%",
+            html.Span(f"({constituency_signature_count:,.0f} signatures)", style=paren_style)
+        ])
+        if sig_prop_electorate is not None else no_constituency
+    )
     electorate_category = percentile_category(sig_prop_electorate_percentile)
     sig_prop_electorate_rank_str = (
         html.Span([f"{int(sig_prop_electorate_rank)} of {TOTAL_CONSTITUENCIES}"] + ([html.Span(f"({electorate_category})", style=paren_style)] if electorate_category else []))
@@ -2366,13 +2443,15 @@ def update_graph(petition_id, PCON24CD):
         .sort_values('sig_prop_electorate', ascending=False) \
         .reset_index(drop=True)
 
+    sig_prop_electorate_uf = calculate_upperfence(top_constituencies['sig_prop_electorate'].dropna())
+
     top_constituencies_table = dag.AgGrid(
         id='petition-top-constituencies-datatable',
         rowData=top_constituencies.to_dict('records'),
         columnDefs=[
             {'field': 'constituency_name', 'headerName': 'Constituency', 'flex': 2, 'minWidth': 180},
             {'field': 'sig_prop_electorate', 'headerName': 'No. of sigs as % of electorate',
-             'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
+             'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(3) + '%'"},
              'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center',
              'sort': 'desc'},
             {'field': 'signature_count', 'headerName': 'Number of signatures',
@@ -2380,9 +2459,13 @@ def update_graph(petition_id, PCON24CD):
              'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center'},
         ],
         defaultColDef={'sortable': True, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
-        dashGridOptions={'domLayout': 'autoHeight', 'unSortIcon': True},
+        dashGridOptions={'unSortIcon': True},
+        getRowStyle={'styleConditions': [
+            {'condition': f'params.data.sig_prop_electorate >= {sig_prop_electorate_uf}',
+             'style': {'backgroundColor': '#E6D9F2'}}
+        ]},
         className='ag-theme-alpine',
-        style={'width': '100%'},
+        style={'width': '100%', 'height': '100%'},
     )
 
     return (
@@ -2390,6 +2473,7 @@ def update_graph(petition_id, PCON24CD):
         f"{total_signatures:,}",
         opened_at_str,
         debate_date_str,
+        median_sig_rate_str,
         sig_prop_electorate_str,
         sig_prop_electorate_rank_str,
         top_constituencies_table,
