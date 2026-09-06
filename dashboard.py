@@ -891,6 +891,21 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <style>
+            /* Dash's built-in "Loading..." placeholder, shown in place of the app
+               entry point until the JS bundle has loaded and React has hydrated the
+               real layout - by default a small, top-left, unstyled line of text. */
+            ._dash-loading {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 28px;
+                font-weight: 600;
+                color: #373151;
+                background-color: #fff;
+            }
+
             /* Smaller card title headings across the dashboard */
             .card-body h5 {
                 font-size: 1rem;
