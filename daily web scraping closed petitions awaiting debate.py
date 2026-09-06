@@ -4,6 +4,7 @@ Web scraping from UK petitions website
 
 # Importing libraries
 import boto3
+import gzip
 import pandas as pd
 import requests
 from datetime import date, datetime, timedelta
@@ -105,14 +106,18 @@ async def run(df):
 
 
 def upload_to_s3(df, file_name, s3_client, bucket):
-    csv_buffer = StringIO()
-    df.to_csv(csv_buffer, index=False)
-    csv_buffer.seek(0)
+    # Gzip-compressed on the way up (CSVs of mostly repetitive integers compress very
+    # well) so the dashboard's startup download - the dominant cost in its cold-start
+    # time - has far fewer bytes to pull over the wire.
+    csv_bytes = df.to_csv(index=False).encode('utf-8')
+    compressed = gzip.compress(csv_bytes)
 
     s3_client.put_object(
         Bucket=bucket,
         Key=file_name,
-        Body=csv_buffer.getvalue()
+        Body=compressed,
+        ContentEncoding='gzip',
+        ContentType='text/csv'
     )
 
 
@@ -200,8 +205,8 @@ async def main():
             region_name=aws_region
         )
 
-        upload_to_s3(closed_petitions, f'dynamic_data/closed_awaiting_deb_petitions_list_{today_str}.csv', s3_client, bucket)
-        upload_to_s3(closed_petition_counts_df, f'dynamic_data/closed_awaiting_deb_petitions_counts_{today_str}.csv', s3_client, bucket)
+        upload_to_s3(closed_petitions, f'dynamic_data/closed_awaiting_deb_petitions_list_{today_str}.csv.gz', s3_client, bucket)
+        upload_to_s3(closed_petition_counts_df, f'dynamic_data/closed_awaiting_deb_petitions_counts_{today_str}.csv.gz', s3_client, bucket)
 
         print("Upload complete!")
 

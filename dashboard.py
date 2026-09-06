@@ -9,11 +9,13 @@ _startup_t0 = time.time()
 
 import os
 import gc
+import gzip
 import textwrap
 from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 import pandas as pd
@@ -59,8 +61,24 @@ s3_client = boto3.client(
 
 def load_csv(filename):
     s3_object = s3_client.get_object(Bucket=bucket, Key=filename)
-    df = pd.read_csv(s3_object['Body'])
+    body = s3_object['Body'].read()
+    if filename.endswith('.gz'):
+        body = gzip.decompress(body)
+    df = pd.read_csv(BytesIO(body))
     return df
+
+
+def load_dynamic_csv(base_key):
+    """Loads a dynamic-data CSV, preferring the gzip-compressed key the scraper
+    now uploads (base_key + '.gz') and falling back to the legacy uncompressed
+    key. Only matters for the day of this format switch - it lets the dashboard
+    deploy independently of the scraper picking up the new upload format, rather
+    than requiring the scraper to run first. Safe to remove once no date within
+    the today/yesterday fallback window can still be in the old format."""
+    try:
+        return load_csv(f'{base_key}.gz')
+    except s3_client.exceptions.NoSuchKey:
+        return load_csv(base_key)
 
 
 def save_local_cache(df, filename):
@@ -89,12 +107,19 @@ def get_petitions_data():
         print("No local cache found for today or yesterday, falling back to S3...")
 
     # Same today/yesterday lookup used in production - also the local-mode
-    # fallback when no local cache file matches either date.
+    # fallback when no local cache file matches either date. The list and counts
+    # files for a given date don't depend on each other, so fetch them
+    # concurrently rather than waiting on one full S3 download before starting
+    # the next - counts is by far the larger file (megabytes vs kilobytes) and
+    # was otherwise blocking on list's download for no reason.
     for delta in [0, 1]:
         date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
         try:
-            petitions_list  = load_csv(f'dynamic_data/petitions_list_{date_str}.csv')
-            petitions_count = load_csv(f'dynamic_data/petitions_counts_{date_str}.csv')
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                list_future  = executor.submit(load_dynamic_csv, f'dynamic_data/petitions_list_{date_str}.csv')
+                count_future = executor.submit(load_dynamic_csv, f'dynamic_data/petitions_counts_{date_str}.csv')
+                petitions_list  = list_future.result()
+                petitions_count = count_future.result()
             print(f"Loaded data for {date_str} from S3")
             if ENV == 'local':
                 save_local_cache(petitions_list, f'petitions_list_{date_str}.csv')
@@ -122,12 +147,16 @@ def get_closed_awaiting_debate_data():
         print("No local cache found for today or yesterday, falling back to S3...")
 
     # Same today/yesterday lookup used in production - also the local-mode
-    # fallback when no local cache file matches either date.
+    # fallback when no local cache file matches either date. Fetched concurrently
+    # for the same reason as the open-petitions list/counts pair above.
     for delta in [0, 1]:
         date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
         try:
-            closed_list  = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
-            closed_count = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                list_future  = executor.submit(load_dynamic_csv, f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
+                count_future = executor.submit(load_dynamic_csv, f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
+                closed_list  = list_future.result()
+                closed_count = count_future.result()
             print(f"Loaded closed-awaiting-debate petitions data for {date_str} from S3")
             if ENV == 'local':
                 save_local_cache(closed_list, f'closed_awaiting_deb_petitions_list_{date_str}.csv')
@@ -170,11 +199,16 @@ def get_petition_data(petition_id):
 print(f"Environment: {ENV}")
 
 _data_load_t0 = time.time()
-print("Loading petitions data...")
-petitions_list, petitions_count = get_petitions_data()
+print("Loading petitions data, closed-awaiting-debate data and electorate data concurrently...")
+with ThreadPoolExecutor(max_workers=3) as executor:
+    petitions_future  = executor.submit(get_petitions_data)
+    closed_future     = executor.submit(get_closed_awaiting_debate_data)
+    electorate_future = executor.submit(get_electorate_data)
 
-print("Loading closed-awaiting-debate petitions data...")
-closed_petitions_list, closed_petitions_count = get_closed_awaiting_debate_data()
+    petitions_list, petitions_count = petitions_future.result()
+    closed_petitions_list, closed_petitions_count = closed_future.result()
+    electorate_df = electorate_future.result()
+
 if closed_petitions_list is not None:
     # Merged in at the source so the cross-join/ranking pipeline below treats them
     # like any other petition_id. Everywhere that should stay open-petitions-only
@@ -187,9 +221,6 @@ if closed_petitions_list is not None:
         .drop_duplicates(subset='petition_id', keep='last')
     petitions_count = pd.concat([petitions_count, closed_petitions_count], ignore_index=True) \
         .drop_duplicates(subset=['petition_id', 'PCON24CD'], keep='last')
-
-print("Loading electorate data...")
-electorate_df = get_electorate_data()
 
 print("Done loading data.")
 print(f"[startup] S3/local data download: {time.time() - _data_load_t0:.2f}s")
