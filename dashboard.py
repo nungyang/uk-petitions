@@ -882,6 +882,20 @@ def robots_txt():
     return Response("User-agent: *\nAllow: /\n", mimetype="text/plain")
 
 
+# Only load in production - gtag doesn't distinguish localhost from the real
+# domain, so loading it under ENV=local would mix dev testing into GA's data.
+GA_SNIPPET = '''
+        <!-- Google tag (gtag.js) -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-M1S3E969QK"></script>
+        <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+
+          gtag('config', 'G-M1S3E969QK');
+        </script>
+''' if ENV != 'local' else ''
+
 app.index_string = '''
 <!DOCTYPE html>
 <html>
@@ -890,6 +904,7 @@ app.index_string = '''
         <title>{%title%}</title>
         {%favicon%}
         {%css%}
+''' + GA_SNIPPET + '''
         <style>
             /* Dash's built-in "Loading..." placeholder, shown in place of the app
                entry point until the JS bundle has loaded and React has hydrated the
@@ -1530,6 +1545,7 @@ banner = dbc.Navbar(
 
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
+    html.Div(id='ga-pageview-dummy', style={'display': 'none'}),
     banner,
     dbc.Container([
         dcc.Tabs(id='main-tabs', value='tab-1', children=[
@@ -2231,6 +2247,26 @@ def switch_tab(pathname):
     if pathname == '/about':
         return 'tab-4', False, False, False, True
     return 'tab-1', True, False, False, False
+
+
+# Tab switches update the URL client-side (no page reload), so GA's automatic
+# page_view - fired once, when gtag.js first loads - never sees them. Send a
+# manual page_view on each pathname change so tabs show up as separate pages.
+app.clientside_callback(
+    """
+    function(pathname) {
+        if (window.gtag) {
+            window.gtag('event', 'page_view', {
+                page_path: pathname,
+                page_title: document.title,
+            });
+        }
+        return '';
+    }
+    """,
+    Output('ga-pageview-dummy', 'children'),
+    Input('url', 'pathname'),
+)
 
 
 # ── Constituency Overview tab ─────────────────────────────
