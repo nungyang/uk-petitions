@@ -9,11 +9,14 @@ _startup_t0 = time.time()
 
 import os
 import gc
+import gzip
+import re
 import textwrap
 from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 import pandas as pd
@@ -21,7 +24,7 @@ import numpy as np
 from statsmodels.stats.stattools import medcouple
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, dcc, Output, Input, html, ctx
+from dash import Dash, dcc, Output, Input, State, html, ctx
 from flask import Response
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
@@ -59,8 +62,24 @@ s3_client = boto3.client(
 
 def load_csv(filename):
     s3_object = s3_client.get_object(Bucket=bucket, Key=filename)
-    df = pd.read_csv(s3_object['Body'])
+    body = s3_object['Body'].read()
+    if filename.endswith('.gz'):
+        body = gzip.decompress(body)
+    df = pd.read_csv(BytesIO(body))
     return df
+
+
+def load_dynamic_csv(base_key):
+    """Loads a dynamic-data CSV, preferring the gzip-compressed key the scraper
+    now uploads (base_key + '.gz') and falling back to the legacy uncompressed
+    key. Only matters for the day of this format switch - it lets the dashboard
+    deploy independently of the scraper picking up the new upload format, rather
+    than requiring the scraper to run first. Safe to remove once no date within
+    the today/yesterday fallback window can still be in the old format."""
+    try:
+        return load_csv(f'{base_key}.gz')
+    except s3_client.exceptions.NoSuchKey:
+        return load_csv(base_key)
 
 
 def save_local_cache(df, filename):
@@ -89,12 +108,19 @@ def get_petitions_data():
         print("No local cache found for today or yesterday, falling back to S3...")
 
     # Same today/yesterday lookup used in production - also the local-mode
-    # fallback when no local cache file matches either date.
+    # fallback when no local cache file matches either date. The list and counts
+    # files for a given date don't depend on each other, so fetch them
+    # concurrently rather than waiting on one full S3 download before starting
+    # the next - counts is by far the larger file (megabytes vs kilobytes) and
+    # was otherwise blocking on list's download for no reason.
     for delta in [0, 1]:
         date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
         try:
-            petitions_list  = load_csv(f'dynamic_data/petitions_list_{date_str}.csv')
-            petitions_count = load_csv(f'dynamic_data/petitions_counts_{date_str}.csv')
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                list_future  = executor.submit(load_dynamic_csv, f'dynamic_data/petitions_list_{date_str}.csv')
+                count_future = executor.submit(load_dynamic_csv, f'dynamic_data/petitions_counts_{date_str}.csv')
+                petitions_list  = list_future.result()
+                petitions_count = count_future.result()
             print(f"Loaded data for {date_str} from S3")
             if ENV == 'local':
                 save_local_cache(petitions_list, f'petitions_list_{date_str}.csv')
@@ -122,12 +148,16 @@ def get_closed_awaiting_debate_data():
         print("No local cache found for today or yesterday, falling back to S3...")
 
     # Same today/yesterday lookup used in production - also the local-mode
-    # fallback when no local cache file matches either date.
+    # fallback when no local cache file matches either date. Fetched concurrently
+    # for the same reason as the open-petitions list/counts pair above.
     for delta in [0, 1]:
         date_str = (datetime.now() - timedelta(days=delta)).strftime('%Y%m%d')
         try:
-            closed_list  = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
-            closed_count = load_csv(f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                list_future  = executor.submit(load_dynamic_csv, f'dynamic_data/closed_awaiting_deb_petitions_list_{date_str}.csv')
+                count_future = executor.submit(load_dynamic_csv, f'dynamic_data/closed_awaiting_deb_petitions_counts_{date_str}.csv')
+                closed_list  = list_future.result()
+                closed_count = count_future.result()
             print(f"Loaded closed-awaiting-debate petitions data for {date_str} from S3")
             if ENV == 'local':
                 save_local_cache(closed_list, f'closed_awaiting_deb_petitions_list_{date_str}.csv')
@@ -170,11 +200,16 @@ def get_petition_data(petition_id):
 print(f"Environment: {ENV}")
 
 _data_load_t0 = time.time()
-print("Loading petitions data...")
-petitions_list, petitions_count = get_petitions_data()
+print("Loading petitions data, closed-awaiting-debate data and electorate data concurrently...")
+with ThreadPoolExecutor(max_workers=3) as executor:
+    petitions_future  = executor.submit(get_petitions_data)
+    closed_future     = executor.submit(get_closed_awaiting_debate_data)
+    electorate_future = executor.submit(get_electorate_data)
 
-print("Loading closed-awaiting-debate petitions data...")
-closed_petitions_list, closed_petitions_count = get_closed_awaiting_debate_data()
+    petitions_list, petitions_count = petitions_future.result()
+    closed_petitions_list, closed_petitions_count = closed_future.result()
+    electorate_df = electorate_future.result()
+
 if closed_petitions_list is not None:
     # Merged in at the source so the cross-join/ranking pipeline below treats them
     # like any other petition_id. Everywhere that should stay open-petitions-only
@@ -187,9 +222,6 @@ if closed_petitions_list is not None:
         .drop_duplicates(subset='petition_id', keep='last')
     petitions_count = pd.concat([petitions_count, closed_petitions_count], ignore_index=True) \
         .drop_duplicates(subset=['petition_id', 'PCON24CD'], keep='last')
-
-print("Loading electorate data...")
-electorate_df = get_electorate_data()
 
 print("Done loading data.")
 print(f"[startup] S3/local data download: {time.time() - _data_load_t0:.2f}s")
@@ -276,11 +308,28 @@ RANK_INFO_TEXT = "Ranking only shows for petitions with 10,000 or more signature
 
 VIEW_PETITION_BTN_STYLE = {
     'position': 'absolute', 'top': '14px', 'right': '18px',
-    'fontSize': '12px', 'fontWeight': 'bold', 'color': 'white',
-    'border': '1px solid #373151', 'borderRadius': '6px',
+    'fontSize': '14px', 'fontWeight': 'bold', 'color': 'white',
+    'border': '1px solid #1a7a5c', 'borderRadius': '6px',
     'padding': '4px 10px', 'textDecoration': 'none',
-    'backgroundColor': '#373151'
+    'backgroundColor': '#1a7a5c'
 }
+
+# Same look as VIEW_PETITION_BTN_STYLE, but laid out inline next to the petition
+# dropdown (Petition Overview tab) instead of pinned to the top-right corner.
+VIEW_PETITION_BTN_STYLE_INLINE = {k: v for k, v in VIEW_PETITION_BTN_STYLE.items() if k not in ('position', 'top', 'right')}
+
+DOWNLOAD_CSV_BTN_STYLE = {
+    **VIEW_PETITION_BTN_STYLE_INLINE,
+    'cursor': 'pointer',
+}
+
+# Constituency Overview's bottom row (Popular new petitions / Upcoming debate(s)):
+# fixed to the "Upcoming debate(s)" card's own natural content height (its
+# heading + dropdowns + the 350px histogram/3 stat cards below them, all of
+# which are a constant size regardless of which petition/debate is selected)
+# rather than letting either card stretch to match however many rows are in
+# the other - Popular new petitions scrolls internally instead of growing past it.
+BOTTOM_ROW_CARD_HEIGHT = '484px'
 
 
 def make_header_info_icon_template(icon_id):
@@ -688,14 +737,16 @@ def render_top5_bars(df, value_col, bar_color='#0d6efd', border_color='#0a58ca',
 def render_signature_histogram(df, median_value, highlight_value=None, constituency_name=None,
                                 value_col='signature_count', x_axis_title='Number of signatures',
                                 bin_unit_label='no of sig', value_fmt=None, discrete=True,
-                                tick_format=',d', tick_suffix='', hide_zero_tick=False):
+                                tick_format=',d', tick_suffix='', hide_zero_tick=False, num_bins=30):
     """Histogram of value_col across constituencies for one petition, with a dotted
     vertical line at median_value and, if highlight_value is given, the bin
     containing it picked out in a lighter shade of green.
 
     discrete=True (the default, for raw signature counts) keeps bin edges on whole
     numbers. Continuous metrics (e.g. signatures as a proportion of electorate) pass
-    discrete=False to bin the observed range directly instead.
+    discrete=False to bin the observed range directly instead - num_bins only
+    applies to that path (the discrete path derives its own bin count from
+    max_val so bin edges land on whole numbers).
     """
     values = df[value_col]
     value_fmt = value_fmt or (lambda v: f"{int(round(v)):,}")
@@ -706,7 +757,6 @@ def render_signature_histogram(df, median_value, highlight_value=None, constitue
         num_bins = max(1, -(-max_val // bin_width))  # ceil(max_val / bin_width)
         bin_edges = np.arange(num_bins + 1) * bin_width
     else:
-        num_bins = 30
         bin_edges = np.linspace(0, max_val if max_val > 0 else 1, num_bins + 1)
     counts, bin_edges = np.histogram(values, bins=bin_edges)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -732,8 +782,9 @@ def render_signature_histogram(df, median_value, highlight_value=None, constitue
     bin_indices = np.searchsorted(bin_edges, values.values, side='right') - 1
     bin_indices = np.clip(bin_indices, 0, len(counts) - 1)
     names_by_bin = (
-        pd.Series(df['constituency_name'].values, index=bin_indices)
-        .groupby(level=0).apply(sorted)
+        pd.DataFrame({'name': df['constituency_name'].values, 'value': values.values}, index=bin_indices)
+        .groupby(level=0)
+        .apply(lambda g: g.sort_values('value', ascending=False)['name'].tolist())
     )
 
     constituency_lists = []
@@ -860,6 +911,21 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <style>
+            /* Dash's built-in "Loading..." placeholder, shown in place of the app
+               entry point until the JS bundle has loaded and React has hydrated the
+               real layout - by default a small, top-left, unstyled line of text. */
+            ._dash-loading {
+                position: fixed;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 28px;
+                font-weight: 600;
+                color: #373151;
+                background-color: #fff;
+            }
+
             /* Smaller card title headings across the dashboard */
             .card-body h5 {
                 font-size: 1rem;
@@ -1171,6 +1237,89 @@ app.index_string = '''
             #about-page-content a:visited {
                 color: #6B3FA0;
             }
+
+            /* Full-page overlay shown until every card/table that's populated by a
+               callback (rather than baked into the initial layout) has its real data
+               in, so the page reveals all at once instead of each card popping in
+               separately as its own callback finishes - see reveal_initial_content. */
+            @keyframes initial-loading-spin {
+                to { transform: rotate(360deg); }
+            }
+            .initial-loading-spinner {
+                width: 48px;
+                height: 48px;
+                border: 5px solid #e0e0e0;
+                border-top-color: #373151;
+                border-radius: 50%;
+                animation: initial-loading-spin 0.8s linear infinite;
+            }
+
+            /* Modern Chrome/macOS enforces auto-hide "overlay" scrollbars at the
+               OS/browser level - no page CSS (scrollbar-width, ::-webkit-scrollbar,
+               even ag-Grid's own always-show option) can force ag-Grid's native
+               scrollbar to stay visible any more. Draw our own always-visible one
+               instead for the bottom-left "Petition Overview" table, synced to the
+               grid's real scroll position by the JS below. Its top/height/right are
+               set inline by that JS (to match the body viewport's own position -
+               below the header row, flush against its right edge) rather than
+               here; the right: 2px below is only a fallback until JS runs. */
+            .custom-scrollbar-track {
+                position: absolute;
+                right: 2px;
+                width: 8px;
+                z-index: 5;
+            }
+            .custom-scrollbar-track .custom-scrollbar-thumb {
+                position: absolute;
+                right: 0;
+                width: 8px;
+                background-color: #b7b7c8;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            .custom-scrollbar-track .custom-scrollbar-thumb:hover {
+                background-color: #9a9ab0;
+            }
+            /* ag-Grid's own native scrollbar for this grid would otherwise still
+               flash into view (opacity fading back to 1) while actively being
+               scrolled or hovered, showing alongside our custom one above - keep it
+               permanently hidden instead. opacity (not display:none) so it keeps a
+               real layout box: our JS still reads/sets its real scrollTop. */
+            #petition-top-constituencies-datatable .ag-body-vertical-scroll {
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+
+            /* "i" info icon on the banner row explaining the green highlight
+               (see rowClassRules on that grid) - a real circle sized by ordinary
+               CSS, not a circled-i unicode glyph, whose circle:letter proportions
+               aren't adjustable. Uses ::after rather than ::before because
+               ag-Grid's own theme already uses ::before on .ag-row-hover for its
+               hover-highlight overlay (position: absolute; inset: 0) - sharing
+               ::before with it meant our icon got reset to that overlay's
+               top:0/left:0 the moment the row was hovered. */
+            .petition-top-constituencies-banner-row {
+                position: relative;
+            }
+            .petition-top-constituencies-banner-row::after {
+                content: 'i';
+                position: absolute;
+                left: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 22px;
+                height: 22px;
+                box-sizing: border-box;
+                border: 2px solid #0b4a34;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 14px;
+                font-weight: bold;
+                font-style: normal;
+                color: #0b4a34;
+            }
         </style>
     </head>
     <body>
@@ -1334,6 +1483,123 @@ app.index_string = '''
                     scrollAllPetitionsTableToTop();
                 });
             })();
+
+            // Custom always-visible scrollbar for the "Petition Overview" bottom-left
+            // table (see the CSS above for why ag-Grid's own native one can't be
+            // forced to stay visible any more). Draws a track/thumb pair on top of
+            // ag-Grid's real vertical-scroll viewport and keeps them in sync with it
+            // in both directions: scrolling the grid moves the thumb, dragging the
+            // thumb (or clicking the track) scrolls the grid.
+            (function() {
+                function getEls() {
+                    var grid = document.getElementById('petition-top-constituencies-datatable');
+                    var track = document.getElementById('petition-top-constituencies-scrollbar');
+                    if (!grid || !track) { return null; }
+                    var viewport = grid.querySelector('.ag-body-vertical-scroll-viewport');
+                    var thumb = track.querySelector('.custom-scrollbar-thumb');
+                    if (!viewport || !thumb) { return null; }
+                    return {viewport: viewport, track: track, thumb: thumb};
+                }
+
+                function thumbHeightFor(els) {
+                    var ratio = els.viewport.clientHeight / els.viewport.scrollHeight;
+                    return Math.max(24, els.track.clientHeight * ratio);
+                }
+
+                // Lines the track up with ag-Grid's own (now-hidden) native vertical
+                // scroll strip: same vertical extent (so it starts below the header
+                // row, where the actual scrollable rows begin, not at the top of the
+                // whole grid) and flush against its right edge (so it reads as an
+                // inset scrollbar rather than floating outside the table) - both
+                // measured directly off that element's own layout rather than
+                // guessed from surrounding padding/gutters, which vary by card.
+                function positionTrack(els) {
+                    // offsetParent is null while the track is display:none, which it
+                    // never is any more (see updateThumb - hidden via visibility
+                    // instead) precisely so this stays measurable at all times.
+                    var parentRect = els.track.offsetParent.getBoundingClientRect();
+                    var vpRect = els.viewport.getBoundingClientRect();
+                    els.track.style.top = (vpRect.top - parentRect.top) + 'px';
+                    els.track.style.height = vpRect.height + 'px';
+                    els.track.style.right = (parentRect.right - vpRect.right) + 'px';
+                }
+
+                function updateThumb(els) {
+                    positionTrack(els);
+                    var scrollable = els.viewport.scrollHeight - els.viewport.clientHeight;
+                    if (scrollable <= 1) {
+                        els.track.style.visibility = 'hidden';
+                        return;
+                    }
+                    els.track.style.visibility = 'visible';
+                    var thumbHeight = thumbHeightFor(els);
+                    var maxThumbTop = els.track.clientHeight - thumbHeight;
+                    var thumbTop = maxThumbTop * (els.viewport.scrollTop / scrollable);
+                    els.thumb.style.height = thumbHeight + 'px';
+                    els.thumb.style.top = thumbTop + 'px';
+                }
+
+                // Reused by both dragging the thumb and clicking the track - moves
+                // the grid's real scrollTop so ag-Grid's own scroll-sync logic (which
+                // it already needs for its own, now-invisible, native scrollbar)
+                // repositions the rows; updateThumb then follows that via the
+                // 'scroll' listener registered in bind() below.
+                function scrollToThumbTop(els, thumbTop) {
+                    var thumbHeight = thumbHeightFor(els);
+                    var maxThumbTop = els.track.clientHeight - thumbHeight;
+                    var scrollable = els.viewport.scrollHeight - els.viewport.clientHeight;
+                    var clamped = Math.min(Math.max(thumbTop, 0), maxThumbTop);
+                    els.viewport.scrollTop = maxThumbTop > 0 ? (clamped / maxThumbTop) * scrollable : 0;
+                }
+
+                function bind(els) {
+                    updateThumb(els);
+                    // ag-Grid tears down and recreates this viewport element every time
+                    // the selected petition changes, so re-binding is driven entirely
+                    // by this per-element flag rather than a one-time page-load setup.
+                    if (els.viewport.dataset.customScrollbarBound) { return; }
+                    els.viewport.dataset.customScrollbarBound = '1';
+
+                    els.viewport.addEventListener('scroll', function() { updateThumb(els); });
+                    window.addEventListener('resize', function() { updateThumb(els); });
+                    if (window.ResizeObserver) {
+                        new ResizeObserver(function() { updateThumb(els); }).observe(els.viewport);
+                        new ResizeObserver(function() { updateThumb(els); }).observe(els.track);
+                    }
+
+                    var dragging = false, dragStartY = 0, dragStartThumbTop = 0;
+                    els.thumb.addEventListener('mousedown', function(e) {
+                        dragging = true;
+                        dragStartY = e.clientY;
+                        dragStartThumbTop = parseFloat(els.thumb.style.top) || 0;
+                        document.body.style.userSelect = 'none';
+                        e.preventDefault();
+                    });
+                    document.addEventListener('mousemove', function(e) {
+                        if (!dragging) { return; }
+                        scrollToThumbTop(els, dragStartThumbTop + (e.clientY - dragStartY));
+                    });
+                    document.addEventListener('mouseup', function() {
+                        if (!dragging) { return; }
+                        dragging = false;
+                        document.body.style.userSelect = '';
+                    });
+                    els.track.addEventListener('mousedown', function(e) {
+                        if (e.target !== els.track) { return; } // clicks on the thumb are handled above
+                        var rect = els.track.getBoundingClientRect();
+                        scrollToThumbTop(els, (e.clientY - rect.top) - thumbHeightFor(els) / 2);
+                    });
+                }
+
+                var observer = new MutationObserver(function() {
+                    var els = getEls();
+                    if (els) { bind(els); }
+                });
+                observer.observe(document.body, {childList: true, subtree: true});
+
+                var initialEls = getEls();
+                if (initialEls) { bind(initialEls); }
+            })();
         </script>
     </body>
 </html>
@@ -1388,10 +1654,14 @@ else:
              'headerClass': 'ag-header-center', 'cellStyle': {'textAlign': 'center'}},
         ],
         defaultColDef={'sortable': False, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
-        dashGridOptions={'domLayout': 'autoHeight', 'animateRows': False},
+        # domLayout intentionally left as the default ('normal') rather than
+        # 'autoHeight': this grid now lives in a fixed-height, overflow:auto
+        # wrapper (see BOTTOM_ROW_CARD_HEIGHT) and needs its own internal
+        # scrollbar for rows beyond that, rather than growing to fit them all.
+        dashGridOptions={'animateRows': False},
         dangerously_allow_code=True,
         className='ag-theme-alpine',
-        style={'width': '100%'},
+        style={'width': '100%', 'height': '100%'},
     )
 
 # ── Dropdowns ─────────────────────────────────────────────
@@ -1483,6 +1753,15 @@ banner = dbc.Navbar(
 # ── App layout ────────────────────────────────────────────
 
 app.layout = html.Div([
+    html.Div(
+        id='initial-loading-overlay',
+        children=html.Div(className='initial-loading-spinner'),
+        style={
+            'position': 'fixed', 'inset': 0, 'zIndex': 9999,
+            'backgroundColor': '#fff',
+            'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center',
+        }
+    ),
     dcc.Location(id='url', refresh=False),
     banner,
     dbc.Container([
@@ -1548,10 +1827,17 @@ app.layout = html.Div([
                                             target="popular-petitions-info-icon",
                                             placement="top"
                                         )
-                                    ], className="mb-3 d-flex align-items-center justify-content-center"),
-                                    up_and_coming_component
-                                ], className="pt-3 pb-2", style={'paddingLeft': '8px', 'paddingRight': '8px'}),
-                                className="shadow-sm h-100", style={'borderRadius': '14px'}
+                                    ], className="mb-3 d-flex align-items-center justify-content-center", style={'flex': '0 0 auto'}),
+                                    # flex:1 + overflowY so extra popular-petition rows scroll inside
+                                    # this fixed-height card instead of growing it (and, via the row's
+                                    # flex stretch, the debate card alongside it) taller than the
+                                    # histogram card's own content needs it to be.
+                                    html.Div(up_and_coming_component, style={'flex': '1', 'minHeight': '0', 'overflowY': 'auto'})
+                                ], className="pt-3 pb-2", style={
+                                    'paddingLeft': '8px', 'paddingRight': '8px',
+                                    'display': 'flex', 'flexDirection': 'column', 'height': '100%'
+                                }),
+                                className="shadow-sm", style={'borderRadius': '14px', 'height': BOTTOM_ROW_CARD_HEIGHT}
                             )
                         ], style={'flex': '0 0 39%', 'maxWidth': '39%'}),
                         dbc.Col([
@@ -1619,7 +1905,7 @@ app.layout = html.Div([
                                         style={'flex': '1', 'display': 'flex', 'alignItems': 'center', 'width': '100%'}
                                     ),
                                 ], className="pt-3 pb-2", style={'position': 'relative', 'display': 'flex', 'flexDirection': 'column', 'height': '100%'}),
-                                className="shadow-sm h-100", style={'borderRadius': '14px'}
+                                className="shadow-sm", style={'borderRadius': '14px', 'height': BOTTOM_ROW_CARD_HEIGHT}
                             )
                         ], style={'flex': '0 0 61%', 'maxWidth': '61%'})
                     ], className="g-2 mt-2"),
@@ -1630,13 +1916,7 @@ app.layout = html.Div([
             dcc.Tab(value='tab-2', children=[
                 html.Div([
 
-                    html.A(
-                        "View petition ↗",
-                        id='view-petition-link-btn-2',
-                        href='#',
-                        target='_blank',
-                        style={**VIEW_PETITION_BTN_STYLE, 'display': 'none'}
-                    ),
+                    dcc.Download(id='download-table-csv'),
 
                     dbc.Row([
                         dbc.Col(
@@ -1644,6 +1924,25 @@ app.layout = html.Div([
                             width="auto", className="d-flex align-items-center"
                         ),
                         dbc.Col(petition_dropdown, width="auto", style={'width': '780px', 'maxWidth': '780px'}),
+                        dbc.Col(
+                            html.A(
+                                "View petition ↗",
+                                id='view-petition-link-btn-2',
+                                href='#',
+                                target='_blank',
+                                style={**VIEW_PETITION_BTN_STYLE_INLINE, 'display': 'none'}
+                            ),
+                            width="auto", className="d-flex align-items-center"
+                        ),
+                        dbc.Col(
+                            html.Button(
+                                "Download table as csv",
+                                id='download-table-csv-btn',
+                                n_clicks=0,
+                                style=DOWNLOAD_CSV_BTN_STYLE
+                            ),
+                            width="auto", className="d-flex align-items-center"
+                        ),
                     ], className="g-2 align-items-center", style={'marginBottom': '14px'}),
 
                     dbc.Row([
@@ -1755,8 +2054,13 @@ app.layout = html.Div([
                             ], className="g-2", style={'marginTop': '4px'}),
                             dbc.Row([
                                 dbc.Col([
-                                    html.Div(id='petition-top-constituencies-table', style={'flex': '1', 'minHeight': '0'})
-                                ], width=12, style={'height': '100%', 'display': 'flex', 'flexDirection': 'column'}),
+                                    html.Div(id='petition-top-constituencies-table', style={'flex': '1', 'minHeight': '0'}),
+                                    html.Div(
+                                        html.Div(className='custom-scrollbar-thumb'),
+                                        id='petition-top-constituencies-scrollbar',
+                                        className='custom-scrollbar-track'
+                                    ),
+                                ], width=12, style={'height': '100%', 'display': 'flex', 'flexDirection': 'column', 'position': 'relative'}),
                             ], className="g-2", style={'marginTop': '4px', 'flex': '1', 'minHeight': '0'}),
                         ], width=5, style={'display': 'flex', 'flexDirection': 'column', 'height': '100%'}),
                         dbc.Col([
@@ -2474,8 +2778,9 @@ def update_graph(petition_id, PCON24CD):
     histogram_fig = render_signature_histogram(
         df, median_sig_rate, sig_prop_electorate, constituency_name,
         value_col='sig_prop_electorate', x_axis_title=SIGNATURE_RATE_LABEL,
-        bin_unit_label='% of electorate', value_fmt=lambda v: f"{v:.3f}%", discrete=False,
-        tick_format='.3f', tick_suffix='%', hide_zero_tick=True
+        bin_unit_label='% of electorate', value_fmt=lambda v: f"{v:.2f}%", discrete=False,
+        tick_format='.2f', tick_suffix='%', hide_zero_tick=True,
+        num_bins=50 if total_signatures >= 100_000 else 30
     )
 
     median_sig_rate_str = html.Span([
@@ -2505,9 +2810,14 @@ def update_graph(petition_id, PCON24CD):
         id='petition-top-constituencies-datatable',
         rowData=top_constituencies.to_dict('records'),
         columnDefs=[
-            {'field': 'constituency_name', 'headerName': 'Constituency', 'flex': 2, 'minWidth': 180},
+            {'field': 'constituency_name', 'headerName': 'Constituency', 'flex': 2, 'minWidth': 180,
+             'colSpan': {'function': "params.node.rowPinned === 'top' ? 3 : 1"},
+             'cellStyle': {'function': (
+                 "params.node.rowPinned === 'top' ? "
+                 "{textAlign: 'left', fontWeight: 'bold', color: '#0b4a34', paddingLeft: '38px'} : null"
+             )}},
             {'field': 'sig_prop_electorate', 'headerName': 'Signature rate',
-             'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(3) + '%'"},
+             'valueFormatter': {'function': "params.value == null ? '' : params.value.toFixed(2) + '%'"},
              'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center',
              'sort': 'desc'},
             {'field': 'signature_count', 'headerName': 'Number of signatures',
@@ -2515,10 +2825,25 @@ def update_graph(petition_id, PCON24CD):
              'flex': 1, 'minWidth': 110, 'cellStyle': {'textAlign': 'center'}, 'headerClass': 'ag-header-center'},
         ],
         defaultColDef={'sortable': True, 'resizable': False, 'wrapHeaderText': True, 'autoHeaderHeight': True},
-        dashGridOptions={'unSortIcon': True},
+        dashGridOptions={
+            'unSortIcon': True,
+            # A single pinned row, sitting right below the column headers,
+            # spanning all columns (via colSpan above) to read as a plain-text
+            # banner rather than a data row - explains the green row
+            # highlighting (getRowStyle below) once, up top, rather than
+            # repeating it as a tooltip on every highlighted row.
+            'pinnedTopRowData': [{'constituency_name': 'Constituencies in green are those identified as outliers'}],
+        },
+        # The "i" info icon to the left of the banner text is a real CSS circle
+        # (see .petition-top-constituencies-banner-row::after) rather than a
+        # circled-i unicode character, so its size isn't stuck at whatever a
+        # single glyph happens to render at.
+        rowClassRules={'petition-top-constituencies-banner-row': "params.node.rowPinned === 'top'"},
         getRowStyle={'styleConditions': [
+            {'condition': "params.node.rowPinned === 'top'",
+             'style': {'backgroundColor': '#A4D2B8'}},
             {'condition': f'params.data.sig_prop_electorate >= {sig_prop_electorate_uf}',
-             'style': {'backgroundColor': '#E6D9F2'}}
+             'style': {'backgroundColor': '#D9F2E3'}}
         ]},
         className='ag-theme-alpine',
         style={'width': '100%', 'height': '100%'},
@@ -2533,8 +2858,51 @@ def update_graph(petition_id, PCON24CD):
         sig_prop_electorate_str,
         sig_prop_electorate_rank_str,
         top_constituencies_table,
-        petition_url, {**VIEW_PETITION_BTN_STYLE, 'display': 'inline-block'}
+        petition_url, {**VIEW_PETITION_BTN_STYLE_INLINE, 'display': 'inline-block'}
     )
+
+
+@app.callback(
+    Output('download-table-csv', 'data'),
+    Input('download-table-csv-btn', 'n_clicks'),
+    State('petition-dropdown', 'value'),
+    prevent_initial_call=True,
+)
+def download_petition_table_csv(n_clicks, petition_id):
+    cached_data = get_petition_data(petition_id)
+    df = pd.DataFrame(cached_data, columns=petitions_df.columns)
+
+    top_constituencies = df[['constituency_name', 'sig_prop_electorate', 'signature_count']] \
+        .sort_values('sig_prop_electorate', ascending=False) \
+        .reset_index(drop=True) \
+        .rename(columns={
+            'constituency_name': 'Constituency',
+            'sig_prop_electorate': 'Signature rate (% of electorate)',
+            'signature_count': 'Number of signatures',
+        })
+
+    petition_title = df['petition_title'].iloc[0]
+    safe_title = re.sub(r'[^A-Za-z0-9 _-]+', '', petition_title).strip()[:100]
+
+    return dcc.send_data_frame(top_constituencies.to_csv, f"{safe_title}.csv", index=False)
+
+
+# One Input per callback below (any one of its Outputs will do, since a callback
+# sets all its Outputs together) that populates a card/table on initial page load.
+# Because each of those Inputs is itself an Output of another callback, Dash's
+# dependency graph won't invoke this one until every listed callback has completed
+# its initial run - so the overlay disappears once, revealing the whole page at
+# once, instead of each card popping in separately as its own callback finishes.
+@app.callback(
+    Output('initial-loading-overlay', 'style'),
+    Input('top-5-table-raw-count', 'children'),
+    Input('top5-percent-table', 'children'),
+    Input('upcoming-debates-histogram', 'figure'),
+    Input('all-petitions-datatable', 'columnDefs'),
+    Input('petition-histogram', 'figure'),
+)
+def reveal_initial_content(*_):
+    return {'display': 'none'}
 
 
 print(f"[startup] Total time until app is ready to serve: {time.time() - _startup_t0:.2f}s")
