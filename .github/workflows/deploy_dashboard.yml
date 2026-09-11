@@ -17,6 +17,12 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
+      # Removes the currently running deployment first so the old and new
+      # deployments don't briefly overlap - the dashboard is down for the
+      # short gap until the redeploy below finishes, which is acceptable here.
+      - name: Stop existing deployment
+        run: railway down --service="web" --yes
+
       # Restarts the existing (GitHub-sourced) deployment in place, rather than
       # railway up/down which tries to upload local source - this service is
       # configured for GitHub auto-deploy, and local-source uploads fight that.
