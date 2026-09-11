@@ -17,11 +17,14 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      # Removes the currently running deployment first so the old and new
-      # deployments don't briefly overlap - the dashboard is down for the
-      # short gap until the redeploy below finishes, which is acceptable here.
-      - name: Stop existing deployment
-        run: railway down --service="web" --yes
+      # NOTE: `railway down` is deliberately not used here - it deletes the
+      # deployment record entirely, which then makes the `redeploy` step below
+      # fail with "no active deployment to reference" and leaves the service
+      # down for good. Setting the overlap window to 0 instead makes Railway
+      # tear down the old container as soon as the new one is up, so they
+      # never run side-by-side, without breaking the redeploy that follows.
+      - name: Disable deployment overlap
+        run: railway variables --service="web" --skip-deploys --set "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0"
 
       # Restarts the existing (GitHub-sourced) deployment in place, rather than
       # railway up/down which tries to upload local source - this service is
