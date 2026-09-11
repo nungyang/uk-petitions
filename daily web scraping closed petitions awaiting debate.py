@@ -60,20 +60,26 @@ async def fetch_json(session, url, max_retries=5):
 async def fetch_petition_full(session, url, petition_id):
     data = await fetch_json(session, url)
     if not data:
-        return None, None, None, None, []
+        return None, None, None, None, None, None, []
 
     attrs = data['data']['attributes']
 
     opened = None
     deadline = None
+    closed_at = None
     debate_threshold_reached_date = None
+    response_threshold_reached_date = None
     scheduled_debate_date = None
     if attrs.get('opened_at'):
         opened = datetime.strptime(attrs['opened_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
     if attrs.get('closing_date'):
         deadline = datetime.strptime(attrs['closing_date'], '%Y-%m-%d').date()
+    if attrs.get('closed_at'):
+        closed_at = datetime.strptime(attrs['closed_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
     if attrs.get('debate_threshold_reached_at'):
         debate_threshold_reached_date = datetime.strptime(attrs['debate_threshold_reached_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
+    if attrs.get('response_threshold_reached_at'):
+        response_threshold_reached_date = datetime.strptime(attrs['response_threshold_reached_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
     if attrs.get('scheduled_debate_date'):
         scheduled_debate_date = datetime.strptime(attrs['scheduled_debate_date'], '%Y-%m-%d').date()
 
@@ -87,7 +93,7 @@ async def fetch_petition_full(session, url, petition_id):
         for c in attrs['signatures_by_constituency']
     ]
 
-    return opened, deadline, debate_threshold_reached_date, scheduled_debate_date, constituency_records
+    return opened, deadline, closed_at, debate_threshold_reached_date, response_threshold_reached_date, scheduled_debate_date, constituency_records
 
 
 async def run(df):
@@ -151,25 +157,32 @@ async def main():
     results = await run(closed_petitions)
     print(f"   Time taken: {time.time() - start_time:.2f} seconds")
 
-    opened_list, deadline_list, debate_threshold_list, scheduled_debate_list, counts_lists = [], [], [], [], []
+    opened_list, deadline_list, closed_at_list, debate_threshold_list = [], [], [], []
+    response_threshold_list, scheduled_debate_list, counts_lists = [], [], []
     for r in results:
         if isinstance(r, Exception):
             opened_list.append(None)
             deadline_list.append(None)
+            closed_at_list.append(None)
             debate_threshold_list.append(None)
+            response_threshold_list.append(None)
             scheduled_debate_list.append(None)
             counts_lists.append([])
         else:
-            opened, deadline, debate_threshold, scheduled_debate, records = r
+            opened, deadline, closed_at, debate_threshold, response_threshold, scheduled_debate, records = r
             opened_list.append(opened)
             deadline_list.append(deadline)
+            closed_at_list.append(closed_at)
             debate_threshold_list.append(debate_threshold)
+            response_threshold_list.append(response_threshold)
             scheduled_debate_list.append(scheduled_debate)
             counts_lists.append(records)
 
     closed_petitions['opened_at'] = opened_list
     closed_petitions['deadline'] = deadline_list
+    closed_petitions['closed_at'] = closed_at_list
     closed_petitions['debate_threshold_reached_at'] = debate_threshold_list
+    closed_petitions['response_threshold_reached_at'] = response_threshold_list
     closed_petitions['scheduled_debate_date'] = scheduled_debate_list
 
     closed_petition_counts_df = pd.DataFrame([item for sublist in counts_lists for item in sublist])
