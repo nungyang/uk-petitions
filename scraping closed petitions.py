@@ -100,13 +100,15 @@ async def fetch_json(session, url, max_retries=5):
 async def fetch_petition_full(session, url, petition_id):
     data = await fetch_json(session, url)
     if not data:
-        return None, None, None, None, None, None, []
+        return None, None, None, None, None, None, None, None, []
 
     attrs = data['data']['attributes']
 
     opened = None
     deadline = None
+    closed_at = None
     debate_threshold_reached_date = None
+    response_threshold_reached_date = None
     scheduled_debate_date = None
     if attrs.get('opened_at'):
         opened = datetime.strptime(attrs['opened_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
@@ -117,8 +119,12 @@ async def fetch_petition_full(session, url, petition_id):
         deadline = datetime.strptime(attrs['closing_date'], '%Y-%m-%d').date()
     elif attrs.get('closed_at'):
         deadline = datetime.strptime(attrs['closed_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
+    if attrs.get('closed_at'):
+        closed_at = datetime.strptime(attrs['closed_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
     if attrs.get('debate_threshold_reached_at'):
         debate_threshold_reached_date = datetime.strptime(attrs['debate_threshold_reached_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
+    if attrs.get('response_threshold_reached_at'):
+        response_threshold_reached_date = datetime.strptime(attrs['response_threshold_reached_at'], '%Y-%m-%dT%H:%M:%S.%fZ').date()
     if attrs.get('scheduled_debate_date'):
         scheduled_debate_date = datetime.strptime(attrs['scheduled_debate_date'], '%Y-%m-%d').date()
 
@@ -135,7 +141,7 @@ async def fetch_petition_full(session, url, petition_id):
         for c in attrs['signatures_by_constituency']
     ]
 
-    return opened, deadline, debate_threshold_reached_date, scheduled_debate_date, state, total_signature_count, constituency_records
+    return opened, deadline, closed_at, debate_threshold_reached_date, response_threshold_reached_date, scheduled_debate_date, state, total_signature_count, constituency_records
 
 
 async def scrape_petitions(df):
@@ -175,22 +181,27 @@ async def rescrape_yesterdays_closed_petitions(closed_yesterday, s3_client):
     results = await scrape_petitions(closed_yesterday)
     print(f"   Time taken: {time.time() - start_time:.2f} seconds")
 
-    opened_list, deadline_list, debate_threshold_list, scheduled_debate_list = [], [], [], []
+    opened_list, deadline_list, closed_at_list, debate_threshold_list = [], [], [], []
+    response_threshold_list, scheduled_debate_list = [], []
     status_list, total_signature_count_list, counts_lists = [], [], []
     for r in results:
         if isinstance(r, Exception):
             opened_list.append(None)
             deadline_list.append(None)
+            closed_at_list.append(None)
             debate_threshold_list.append(None)
+            response_threshold_list.append(None)
             scheduled_debate_list.append(None)
             status_list.append(None)
             total_signature_count_list.append(None)
             counts_lists.append([])
         else:
-            opened, deadline, debate_threshold, scheduled_debate, status, total_signature_count, records = r
+            opened, deadline, closed_at, debate_threshold, response_threshold, scheduled_debate, status, total_signature_count, records = r
             opened_list.append(opened)
             deadline_list.append(deadline)
+            closed_at_list.append(closed_at)
             debate_threshold_list.append(debate_threshold)
+            response_threshold_list.append(response_threshold)
             scheduled_debate_list.append(scheduled_debate)
             status_list.append(status)
             total_signature_count_list.append(total_signature_count)
@@ -203,7 +214,9 @@ async def rescrape_yesterdays_closed_petitions(closed_yesterday, s3_client):
     # rather than losing it if a fetch failed.
     closed_yesterday['deadline'] = pd.Series(deadline_list, index=closed_yesterday.index) \
         .combine_first(closed_yesterday['deadline'])
+    closed_yesterday['closed_at'] = closed_at_list
     closed_yesterday['debate_threshold_reached_at'] = debate_threshold_list
+    closed_yesterday['response_threshold_reached_at'] = response_threshold_list
     closed_yesterday['scheduled_debate_date'] = scheduled_debate_list
     closed_yesterday['status'] = pd.Series(status_list, index=closed_yesterday.index) \
         .combine_first(closed_yesterday['status'])
