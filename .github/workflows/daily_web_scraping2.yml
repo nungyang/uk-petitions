@@ -30,18 +30,3 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: python "daily web scraping closed petitions awaiting debate.py"
-
-  deploy-to-railway:
-    needs: scrape # only redeploy if the scrape above succeeded
-    runs-on: ubuntu-latest
-    env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-    steps:
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      # Restarts the existing (GitHub-sourced) deployment in place, rather than
-      # railway up/down which tries to upload local source - this service is
-      # configured for GitHub auto-deploy, and local-source uploads fight that.
-      - name: Restart dashboard
-        run: railway redeploy --service="web" --yes
