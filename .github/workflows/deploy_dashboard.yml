@@ -17,17 +17,13 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      # NOTE: `railway down` is deliberately not used here - it deletes the
-      # deployment record entirely, which then makes the `redeploy` step below
-      # fail with "no active deployment to reference" and leaves the service
-      # down for good. Setting the overlap window to 0 instead makes Railway
-      # tear down the old container as soon as the new one is up, so they
-      # never run side-by-side, without breaking the redeploy that follows.
-      - name: Disable deployment overlap
-        run: railway variables --service="web" --skip-deploys --set "RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0"
-
-      # Restarts the existing (GitHub-sourced) deployment in place, rather than
-      # railway up/down which tries to upload local source - this service is
-      # configured for GitHub auto-deploy, and local-source uploads fight that.
+      # `railway restart` reuses the existing deployment image in place, with
+      # no rebuild and no new deployment record - so there's no old/new
+      # overlap to manage, and no risk of a flaky rebuild breaking the
+      # container (which is what happened when this used `railway redeploy`,
+      # which rebuilds from source every time). `railway down` was also tried
+      # and rejected - it deletes the deployment record entirely, which then
+      # makes any follow-up redeploy fail with "no active deployment to
+      # reference" and leaves the service down for good.
       - name: Restart dashboard
-        run: railway redeploy --service="web" --yes
+        run: railway restart --service="web" --yes
