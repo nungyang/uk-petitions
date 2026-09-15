@@ -10,10 +10,11 @@ opened_at/closed_at/debate dates and constituency breakdowns.
 
 Runs slowly and at low concurrency on purpose - getting rate limited and
 silently dropping petitions is worse than the run taking a while. After
-scraping, rows for petitions that closed on or before 9 September 2026 are
-dropped (from both the list and the counts), since only the 10 September
-2026 onward gap needs backfilling here. Uploads the result to S3 under
-'closed_petitions/'.
+scraping, rows for petitions that closed on or after 10 September 2026 are
+dropped (from both the list and the counts), since those are already covered
+by "scraping closed petitions.py" going forward and only the historical gap
+before 10 September 2026 needs backfilling here. Uploads the result to S3
+under 'closed_petitions/'.
 """
 
 import pandas as pd
@@ -35,7 +36,7 @@ repo_root = Path(__file__).parent.parent
 load_dotenv(dotenv_path=repo_root / '.env')
 
 LIMIT = None  # set to an int to test with a subset
-CUTOFF_DATE = date(2026, 9, 10)  # keep only petitions that closed on/after this date
+CUTOFF_DATE = date(2026, 9, 10)  # keep only petitions that closed before this date
 bucket = 'uk-petitions-dashboard'
 
 headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
@@ -68,7 +69,7 @@ async def fetch_json(session, url, max_retries=8):
                     continue
                 elif response.status == 200:
                     fetch_counter += 1
-                    if fetch_counter % 100 == 0:
+                    if fetch_counter % 10 == 0:
                         print(f"Fetched {fetch_counter} requests so far...")
                     await asyncio.sleep(1.5)
                     return await response.json()
@@ -220,10 +221,10 @@ async def main():
     print(f"   Total petitions: {len(closed_petitions)}")
     print(f"   Total constituency records: {len(closed_petition_counts_df)}")
 
-    print(f"\n4. Dropping petitions that closed before {CUTOFF_DATE}...")
+    print(f"\n4. Dropping petitions that closed on/after {CUTOFF_DATE}...")
     closed_at_dates = pd.to_datetime(closed_petitions['closed_at'], errors='coerce').dt.date
     # Rows with an unknown closed_at (failed fetch) carry no data either - drop them too.
-    keep_mask = closed_at_dates >= CUTOFF_DATE
+    keep_mask = closed_at_dates < CUTOFF_DATE
     dropped = len(closed_petitions) - keep_mask.sum()
     closed_petitions = closed_petitions[keep_mask].copy()
     kept_ids = set(closed_petitions['petition_id'])
@@ -231,7 +232,7 @@ async def main():
         closed_petition_counts_df['petition_id'].isin(kept_ids)
     ].copy()
 
-    print(f"   Dropped {dropped} petition(s) closed before {CUTOFF_DATE}")
+    print(f"   Dropped {dropped} petition(s) closed on/after {CUTOFF_DATE}")
     print(f"   Remaining petitions: {len(closed_petitions)}")
     print(f"   Remaining constituency records: {len(closed_petition_counts_df)}")
 
@@ -240,12 +241,12 @@ async def main():
     cache_dir.mkdir(exist_ok=True)
 
     closed_petitions.to_csv(cache_dir / 'closed_petitions_list_backfill.csv', index=False)
-    closed_petition_counts_df.to_csv(cache_dir / 'closed_petitions_list_counts_backfill.csv', index=False)
+    closed_petition_counts_df.to_csv(cache_dir / 'closed_petitions_counts_backfill.csv', index=False)
     print(f"   Saved to {cache_dir}")
 
     print("\n6. Uploading to S3...")
     upload_to_s3(closed_petitions, 'closed_petitions/closed_petitions_list_backfill.csv.gz', s3_client)
-    upload_to_s3(closed_petition_counts_df, 'closed_petitions/closed_petitions_list_counts_backfill.csv.gz', s3_client)
+    upload_to_s3(closed_petition_counts_df, 'closed_petitions/closed_petitions_counts_backfill.csv.gz', s3_client)
     print("   Upload complete!")
 
     print("\nDone!")
