@@ -906,19 +906,6 @@ app.index_string = '''
 <!DOCTYPE html>
 <html>
     <head>
-        <!-- Google tag (gtag.js) -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-VNKHVS7L66"></script>
-        <script>
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-
-          // Page views are sent manually (see the 'url'-pathname clientside callback
-          // below) since this is a single-page app - dcc.Location changes the URL
-          // without a full page load, so gtag's automatic page_view would only ever
-          // fire once, on first load, and never again as the user switches tabs.
-          gtag('config', 'G-VNKHVS7L66', {send_page_view: false});
-        </script>
         {%metas%}
         <title>{%title%}</title>
         {%favicon%}
@@ -1776,7 +1763,6 @@ app.layout = html.Div([
         }
     ),
     dcc.Location(id='url', refresh=False),
-    dcc.Store(id='ga-pageview-store'),
     banner,
     dbc.Container([
         dcc.Tabs(id='main-tabs', value='tab-1', children=[
@@ -2503,26 +2489,6 @@ def switch_tab(pathname):
     if pathname == '/about':
         return 'tab-4', False, False, False, True
     return 'tab-1', True, False, False, False
-
-
-# Fires a GA4 page_view on every tab switch (see the send_page_view: false note in
-# app.index_string above for why this is needed instead of gtag's automatic tracking).
-app.clientside_callback(
-    """
-    function(pathname) {
-        if (window.gtag) {
-            window.gtag('event', 'page_view', {
-                page_path: pathname,
-                page_location: window.location.origin + pathname,
-                page_title: document.title
-            });
-        }
-        return '';
-    }
-    """,
-    Output('ga-pageview-store', 'data'),
-    Input('url', 'pathname'),
-)
 
 
 # ── Constituency Overview tab ─────────────────────────────
