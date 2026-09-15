@@ -24,7 +24,7 @@ import numpy as np
 from statsmodels.stats.stattools import medcouple
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, dcc, Output, Input, State, html, ctx
+from dash import Dash, dcc, Output, Input, State, html, ctx, no_update
 from flask import Response
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
@@ -2452,24 +2452,45 @@ app.layout = html.Div([
 # link, a page refresh, or the browser back/forward buttons all land on the
 # right tab too. Dash's default catch-all route already serves the app's
 # index page for any path, so a direct request/refresh doesn't 404.
+#
+# The Petition Overview tab additionally gets a per-petition URL,
+# /petition-overview/{petition_id} (e.g. /petition-overview/757233), kept in
+# sync with the petition dropdown in both directions by sync_dropdown_from_url
+# and sync_url_from_dropdown below, so a specific petition's view can be
+# bookmarked/shared directly.
 
 TAB_PATHS = {
     'tab-1-navlink': '/constituency-overview',
-    'tab-2-navlink': '/petition-overview',
     'tab-3-navlink': '/all-open-petitions',
     'tab-4-navlink': '/about',
 }
 
+PETITION_OVERVIEW_PREFIX = '/petition-overview'
+VALID_PETITION_IDS = set(petition_options['petition_id'])
+
+
+def _petition_id_from_pathname(pathname):
+    if not pathname or not pathname.startswith(PETITION_OVERVIEW_PREFIX + '/'):
+        return None
+    petition_id_str = pathname[len(PETITION_OVERVIEW_PREFIX) + 1:].split('/')[0]
+    try:
+        return int(petition_id_str)
+    except ValueError:
+        return None
+
 
 @app.callback(
-    Output('url', 'pathname'),
+    Output('url', 'pathname', allow_duplicate=True),
     Input('tab-1-navlink', 'n_clicks'),
     Input('tab-2-navlink', 'n_clicks'),
     Input('tab-3-navlink', 'n_clicks'),
     Input('tab-4-navlink', 'n_clicks'),
+    State('petition-dropdown', 'value'),
     prevent_initial_call=True
 )
-def navlink_to_url(_n1, _n2, _n3, _n4):
+def navlink_to_url(_n1, _n2, _n3, _n4, petition_id):
+    if ctx.triggered_id == 'tab-2-navlink':
+        return f'{PETITION_OVERVIEW_PREFIX}/{petition_id}' if petition_id is not None else PETITION_OVERVIEW_PREFIX
     return TAB_PATHS.get(ctx.triggered_id, '/')
 
 
@@ -2482,13 +2503,43 @@ def navlink_to_url(_n1, _n2, _n3, _n4):
     Input('url', 'pathname'),
 )
 def switch_tab(pathname):
-    if pathname == '/petition-overview':
+    if pathname and (pathname == PETITION_OVERVIEW_PREFIX or pathname.startswith(PETITION_OVERVIEW_PREFIX + '/')):
         return 'tab-2', False, True, False, False
     if pathname == '/all-open-petitions':
         return 'tab-3', False, False, True, False
     if pathname == '/about':
         return 'tab-4', False, False, False, True
     return 'tab-1', True, False, False, False
+
+
+@app.callback(
+    Output('petition-dropdown', 'value'),
+    Input('url', 'pathname'),
+)
+def sync_dropdown_from_url(pathname):
+    petition_id = _petition_id_from_pathname(pathname)
+    if petition_id is not None and petition_id in VALID_PETITION_IDS:
+        return petition_id
+    return no_update
+
+
+@app.callback(
+    Output('url', 'pathname', allow_duplicate=True),
+    Input('petition-dropdown', 'value'),
+    State('url', 'pathname'),
+    prevent_initial_call='initial_duplicate',
+)
+def sync_url_from_dropdown(petition_id, pathname):
+    # Only take over the URL while already in the petition-overview namespace,
+    # so this doesn't hijack the initial load of any other tab's URL.
+    if petition_id is None or not (
+        pathname and (pathname == PETITION_OVERVIEW_PREFIX or pathname.startswith(PETITION_OVERVIEW_PREFIX + '/'))
+    ):
+        return no_update
+    new_path = f'{PETITION_OVERVIEW_PREFIX}/{petition_id}'
+    if pathname == new_path:
+        return no_update
+    return new_path
 
 
 # ── Constituency Overview tab ─────────────────────────────
