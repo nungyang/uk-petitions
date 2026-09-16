@@ -231,12 +231,12 @@ async def rescrape_yesterdays_closed_petitions(closed_yesterday, s3_client):
     if ENV == 'local':
         cache_dir = script_dir / 'cached_data'
         cache_dir.mkdir(exist_ok=True)
-        closed_yesterday.to_csv(cache_dir / f'closed_petitions_list_{today_str}.csv', index=False)
-        closed_petition_counts_df.to_csv(cache_dir / f'closed_petitions_counts_{today_str}.csv', index=False)
+        closed_yesterday.to_csv(cache_dir / f'closed_petitions_list_{yesterday_str}.csv', index=False)
+        closed_petition_counts_df.to_csv(cache_dir / f'closed_petitions_counts_{yesterday_str}.csv', index=False)
         print(f"   Saved to {cache_dir}")
     else:
-        upload_to_s3(closed_yesterday, f'dynamic_data/closed_petitions_list_{today_str}.csv.gz', s3_client)
-        upload_to_s3(closed_petition_counts_df, f'dynamic_data/closed_petitions_counts_{today_str}.csv.gz', s3_client)
+        upload_to_s3(closed_yesterday, f'dynamic_data/closed_petitions_list_{yesterday_str}.csv.gz', s3_client)
+        upload_to_s3(closed_petition_counts_df, f'dynamic_data/closed_petitions_counts_{yesterday_str}.csv.gz', s3_client)
         print("   Upload complete!")
 
 
