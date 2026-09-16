@@ -191,7 +191,9 @@ async def main():
     print(f"   Total petitions: {len(closed_petitions)}")
     print(f"   Total constituency records: {len(closed_petition_counts_df)}")
 
-    today_str = today.strftime('%Y%m%d')
+    # Saved under yesterday's date since the workflow runs early morning UTC and
+    # this pull reflects the previous day's closed petitions.
+    yesterday_str = (today - timedelta(days=1)).strftime('%Y%m%d')
 
     if ENV == 'local':
         # Saving to local cache instead of S3
@@ -199,8 +201,8 @@ async def main():
         cache_dir = script_dir / 'cached_data'
         cache_dir.mkdir(exist_ok=True)
 
-        closed_petitions.to_csv(cache_dir / f'closed_awaiting_deb_petitions_list_{today_str}.csv', index=False)
-        closed_petition_counts_df.to_csv(cache_dir / f'closed_awaiting_deb_petitions_counts_{today_str}.csv', index=False)
+        closed_petitions.to_csv(cache_dir / f'closed_awaiting_deb_petitions_list_{yesterday_str}.csv', index=False)
+        closed_petition_counts_df.to_csv(cache_dir / f'closed_awaiting_deb_petitions_counts_{yesterday_str}.csv', index=False)
 
         print(f"Saved to {cache_dir}")
     else:
@@ -218,8 +220,8 @@ async def main():
             region_name=aws_region
         )
 
-        upload_to_s3(closed_petitions, f'dynamic_data/closed_awaiting_deb_petitions_list_{today_str}.csv.gz', s3_client, bucket)
-        upload_to_s3(closed_petition_counts_df, f'dynamic_data/closed_awaiting_deb_petitions_counts_{today_str}.csv.gz', s3_client, bucket)
+        upload_to_s3(closed_petitions, f'dynamic_data/closed_awaiting_deb_petitions_list_{yesterday_str}.csv.gz', s3_client, bucket)
+        upload_to_s3(closed_petition_counts_df, f'dynamic_data/closed_awaiting_deb_petitions_counts_{yesterday_str}.csv.gz', s3_client, bucket)
 
         print("Upload complete!")
 
