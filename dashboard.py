@@ -2070,15 +2070,24 @@ COOKIE_BROWSER_HELP = [
 COOKIE_TYPES = [
     (
         "Necessary",
-        "These cookies are needed for the website to work properly and cannot be switched off.",
-        [("cookieyes-consent", "CookieYes", "Remembers whether you have accepted or rejected cookies.")],
+        "Necessary cookies are required to enable the basic features of this site, such as "
+        "adjusting your consent preferences. These cookies do not store any personally "
+        "identifiable data.",
+        [("cookieyes-*", "CookieYes", "1 year",
+          "CookieYes sets this cookie for consent solution management.")],
     ),
     (
         "Analytics",
-        "These cookies help us understand how visitors use the website, so we can improve it.",
+        "Analytical cookies are used to understand how visitors interact with the website. These "
+        "cookies help provide information on metrics such as the number of visitors, bounce rate, "
+        "traffic source, etc.",
         [
-            ("_ga", "Google Analytics", "Distinguishes between visitors, to count unique users."),
-            ("_ga_VNKHVS7L66", "Google Analytics", "Keeps track of each visit (session)."),
+            ("_ga", "Google Analytics", "1 year 1 month 4 days",
+             "Google Analytics sets this cookie to calculate visitor, session and campaign data and "
+             "track site usage for the site's analytics report. The cookie stores information "
+             "anonymously and assigns a randomly generated number to recognise unique visitors."),
+            ("_ga_*", "Google Analytics", "1 year 1 month 4 days",
+             "Google Analytics sets this cookie to store and count page views."),
         ],
     ),
 ]
@@ -2115,8 +2124,7 @@ cookie_policy_content = [
     ),
 
     _policy_heading(COOKIE_SECTIONS, "cookie-types"),
-    # Interim list based on the cookies seen locally - replace with the results of
-    # the CookieYes cookie scan once the site is live with Google Analytics.
+    # Matches the CookieYes cookie scan of the live site - update both together.
     html.P(
         "The cookies used on this website fall into the categories below. Analytics cookies are "
         "only set if you accept them."
@@ -2126,9 +2134,10 @@ cookie_policy_content = [
             html.H6(category, className="fw-bold mb-1"),
             html.P(description, className="mb-2"),
             dbc.Table(
-                [html.Thead(html.Tr([html.Th("Cookie"), html.Th("Set by"), html.Th("Purpose")]))]
-                + [html.Tbody([html.Tr([html.Td(html.Code(name)), html.Td(set_by), html.Td(purpose)])
-                               for name, set_by, purpose in cookies])],
+                [html.Thead(html.Tr([html.Th("Cookie"), html.Th("Set by"), html.Th("Duration"), html.Th("Description")]))]
+                + [html.Tbody([html.Tr([html.Td(html.Code(name)), html.Td(set_by), html.Td(duration),
+                                        html.Td(details)])
+                               for name, set_by, duration, details in cookies])],
                 bordered=True, size="sm", className="mb-4",
             ),
         ])
