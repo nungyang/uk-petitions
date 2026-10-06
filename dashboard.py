@@ -2078,7 +2078,7 @@ COOKIE_TYPES = [
         "These cookies help us understand how visitors use the website, so we can improve it.",
         [
             ("_ga", "Google Analytics", "Distinguishes between visitors, to count unique users."),
-            ("_ga_M1S3E969QK", "Google Analytics", "Keeps track of each visit (session)."),
+            ("_ga_VNKHVS7L66", "Google Analytics", "Keeps track of each visit (session)."),
         ],
     ),
 ]
