@@ -906,14 +906,31 @@ app.index_string = '''
 <!DOCTYPE html>
 <html>
     <head>
+        <!-- Google Consent Mode defaults: must run before CookieYes and gtag.js -->
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag() {
+                dataLayer.push(arguments);
+            }
+            gtag("consent", "default", {
+                ad_storage: "denied",
+                ad_user_data: "denied",
+                ad_personalization: "denied",
+                analytics_storage: "denied",
+                functionality_storage: "denied",
+                personalization_storage: "denied",
+                security_storage: "granted",
+                wait_for_update: 2000,
+            });
+            gtag("set", "ads_data_redaction", true);
+            gtag("set", "url_passthrough", true);
+        </script>
         <!-- Start cookieyes banner -->
         <script id="cookieyes" type="text/javascript" src="https://cdn-cookieyes.com/client_data/def23359df69ba29b198e93397d1e1e9/script.js"></script>
         <!-- End cookieyes banner -->
         <!-- Google tag (gtag.js) -->
         <script async src="https://www.googletagmanager.com/gtag/js?id=G-M1S3E969QK"></script>
         <script>
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
 
           gtag('config', 'G-M1S3E969QK');
