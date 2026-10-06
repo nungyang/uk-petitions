@@ -929,11 +929,11 @@ app.index_string = '''
         <script id="cookieyes" type="text/javascript" src="https://cdn-cookieyes.com/client_data/def23359df69ba29b198e93397d1e1e9/script.js"></script>
         <!-- End cookieyes banner -->
         <!-- Google tag (gtag.js) -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-M1S3E969QK"></script>
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-VNKHVS7L66"></script>
         <script>
           gtag('js', new Date());
 
-          gtag('config', 'G-M1S3E969QK');
+          gtag('config', 'G-VNKHVS7L66');
         </script>
         {%metas%}
         <title>{%title%}</title>
