@@ -1032,13 +1032,29 @@ app.index_string = '''
                 cursor: pointer;
             }
 
-            /* Force the longer nav labels onto two lines so every top-nav link
-               reads at a consistent width instead of stretching the banner. */
+            /* The longer nav labels are split over two lines (with a <br> in the
+               label) so the banner stays compact. */
             .page-navlink-wrap {
-                white-space: normal !important;
-                width: 130px;
+                white-space: nowrap;
                 text-align: center;
                 line-height: 1.2;
+            }
+
+            /* Equal gaps across the top banner at any window width: dissolving the
+               nav's own box makes the logo, each nav link and the constituency
+               dropdown direct flex items of the navbar container, whose
+               justify-content: space-between then spreads them evenly. The logo
+               and dropdown get a margin equal to the nav links' horizontal padding
+               so the visible gaps (to the link text, not the pill edge) match too. */
+            .page-nav {
+                display: contents;
+            }
+            .navbar .banner-edge-item:first-child {
+                margin-right: var(--bs-navbar-nav-link-padding-x, 0.5rem);
+            }
+            /* (minus the 0.25rem negative margin the g-2 row would otherwise have) */
+            .navbar .banner-edge-item:last-child {
+                margin-left: calc(var(--bs-navbar-nav-link-padding-x, 0.5rem) - 0.25rem);
             }
 
             /* Native dcc.Tabs header is replaced by the nav in the top banner; hide it
@@ -1760,19 +1776,19 @@ debate_date_dropdown = dcc.Dropdown(
 
 page_nav = dbc.Nav([
     dbc.NavLink("About", id='tab-4-navlink', active=False),
-    dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True, className="page-navlink-wrap"),
-    dbc.NavLink("Petition Overview", id='tab-2-navlink', active=False, className="page-navlink-wrap"),
-    dbc.NavLink("All Open Petitions", id='tab-3-navlink', active=False, className="page-navlink-wrap"),
-], pills=True, className="gap-5 align-items-center")
+    dbc.NavLink(["Constituency", html.Br(), "Overview"], id='tab-1-navlink', active=True, className="page-navlink-wrap"),
+    dbc.NavLink(["Petition", html.Br(), "Overview"], id='tab-2-navlink', active=False, className="page-navlink-wrap"),
+    dbc.NavLink(["All Open", html.Br(), "Petitions"], id='tab-3-navlink', active=False, className="page-navlink-wrap"),
+], pills=True, className="page-nav")
 
 banner = dbc.Navbar(
     dbc.Container([
-        html.Img(src=app.get_asset_url('Logo.png'), style={'height': '68px'}),
+        html.Img(src=app.get_asset_url('Logo.png'), className="banner-edge-item", style={'height': '68px'}),
         page_nav,
         dbc.Row([
             dbc.Col(html.Label("Constituency:", className="text-white mb-0 me-2"), width="auto"),
             dbc.Col(constituency_dropdown, width="auto"),
-        ], align="center", className="g-2 flex-nowrap"),
+        ], align="center", className="g-2 flex-nowrap banner-edge-item"),
     ], fluid=True, style={'paddingLeft': '34px', 'paddingRight': '32px'}),
     color="#373151",
     dark=True,
