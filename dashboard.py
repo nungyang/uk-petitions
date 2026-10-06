@@ -906,6 +906,18 @@ app.index_string = '''
 <!DOCTYPE html>
 <html>
     <head>
+        <!-- Start cookieyes banner -->
+        <script id="cookieyes" type="text/javascript" src="https://cdn-cookieyes.com/client_data/def23359df69ba29b198e93397d1e1e9/script.js"></script>
+        <!-- End cookieyes banner -->
+        <!-- Google tag (gtag.js) -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-M1S3E969QK"></script>
+        <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+
+          gtag('config', 'G-M1S3E969QK');
+        </script>
         {%metas%}
         <title>{%title%}</title>
         {%favicon%}
@@ -1020,13 +1032,29 @@ app.index_string = '''
                 cursor: pointer;
             }
 
-            /* Force the longer nav labels onto two lines so every top-nav link
-               reads at a consistent width instead of stretching the banner. */
+            /* The longer nav labels are split over two lines (with a <br> in the
+               label) so the banner stays compact. */
             .page-navlink-wrap {
-                white-space: normal !important;
-                width: 130px;
+                white-space: nowrap;
                 text-align: center;
                 line-height: 1.2;
+            }
+
+            /* Equal gaps across the top banner at any window width: dissolving the
+               nav's own box makes the logo, each nav link and the constituency
+               dropdown direct flex items of the navbar container, whose
+               justify-content: space-between then spreads them evenly. The logo
+               and dropdown get a margin equal to the nav links' horizontal padding
+               so the visible gaps (to the link text, not the pill edge) match too. */
+            .page-nav {
+                display: contents;
+            }
+            .navbar .banner-edge-item:first-child {
+                margin-right: var(--bs-navbar-nav-link-padding-x, 0.5rem);
+            }
+            /* (minus the 0.25rem negative margin the g-2 row would otherwise have) */
+            .navbar .banner-edge-item:last-child {
+                margin-left: calc(var(--bs-navbar-nav-link-padding-x, 0.5rem) - 0.25rem);
             }
 
             /* Native dcc.Tabs header is replaced by the nav in the top banner; hide it
@@ -1225,16 +1253,22 @@ app.index_string = '''
                 -webkit-appearance: none;
                 margin: 0;
             }
-            /* Body text on the About page shouldn't show the text-selection (I-beam)
-               cursor; hyperlinks should still show the pointer cursor. */
-            #about-page-content, #about-page-content * {
+            /* Body text on the About, Privacy and Cookie pages shouldn't show the
+               text-selection (I-beam) cursor; hyperlinks should still show the pointer cursor. */
+            #about-page-content, #about-page-content *,
+            #privacy-page-content, #privacy-page-content *,
+            #cookie-page-content, #cookie-page-content * {
                 cursor: default;
             }
-            #about-page-content a {
+            #about-page-content a, #privacy-page-content a, #cookie-page-content a {
                 cursor: pointer;
                 color: #1155CC;
             }
-            #about-page-content a:visited {
+            #cookie-page-content #cookie-consent-preferences-btn {
+                cursor: pointer;
+            }
+            #about-page-content a:visited, #privacy-page-content a:visited,
+            #cookie-page-content a:visited {
                 color: #6B3FA0;
             }
 
@@ -1329,6 +1363,17 @@ app.index_string = '''
             {%scripts%}
             {%renderer%}
         </footer>
+        <script>
+            // Cookie policy's "Consent Preferences" button reopens the CookieYes
+            // banner. Delegated from document because Dash renders the button after
+            // CookieYes has initialised. revisitCkyConsent only exists on the
+            // domain registered with CookieYes, so the button does nothing elsewhere.
+            document.addEventListener('click', function(e) {
+                if (e.target.closest('#cookie-consent-preferences-btn') && window.revisitCkyConsent) {
+                    window.revisitCkyConsent();
+                }
+            });
+        </script>
         <script>
             // Shared by the page-number-input feature and the pagination-button
             // handler below — jumps the page to the top, instantly (Bootstrap sets
@@ -1731,19 +1776,19 @@ debate_date_dropdown = dcc.Dropdown(
 
 page_nav = dbc.Nav([
     dbc.NavLink("About", id='tab-4-navlink', active=False),
-    dbc.NavLink("Constituency Overview", id='tab-1-navlink', active=True, className="page-navlink-wrap"),
-    dbc.NavLink("Petition Overview", id='tab-2-navlink', active=False, className="page-navlink-wrap"),
-    dbc.NavLink("All Open Petitions", id='tab-3-navlink', active=False, className="page-navlink-wrap"),
-], pills=True, className="gap-5 align-items-center")
+    dbc.NavLink(["Constituency", html.Br(), "Overview"], id='tab-1-navlink', active=True, className="page-navlink-wrap"),
+    dbc.NavLink(["Petition", html.Br(), "Overview"], id='tab-2-navlink', active=False, className="page-navlink-wrap"),
+    dbc.NavLink(["All Open", html.Br(), "Petitions"], id='tab-3-navlink', active=False, className="page-navlink-wrap"),
+], pills=True, className="page-nav")
 
 banner = dbc.Navbar(
     dbc.Container([
-        html.Img(src=app.get_asset_url('Logo.png'), style={'height': '68px'}),
+        html.Img(src=app.get_asset_url('Logo.png'), className="banner-edge-item", style={'height': '68px'}),
         page_nav,
         dbc.Row([
             dbc.Col(html.Label("Constituency:", className="text-white mb-0 me-2"), width="auto"),
             dbc.Col(constituency_dropdown, width="auto"),
-        ], align="center", className="g-2 flex-nowrap"),
+        ], align="center", className="g-2 flex-nowrap banner-edge-item"),
     ], fluid=True, style={'paddingLeft': '34px', 'paddingRight': '32px'}),
     color="#373151",
     dark=True,
@@ -1751,6 +1796,352 @@ banner = dbc.Navbar(
 
 
 # ── App layout ────────────────────────────────────────────
+
+PRIVACY_PATH = '/privacy-notice'
+COOKIE_PATH = '/cookie-policy'
+
+PRIVACY_EMAIL = "ukpetitionanalytics@gmail.com"
+
+PRIVACY_SECTIONS = [
+    ("privacy-contact", "Contact details"),
+    ("privacy-what", "What information we collect, use, and why"),
+    ("privacy-lawful", "Lawful bases and data protection rights"),
+    ("privacy-source", "Where we get personal information from"),
+    ("privacy-retention", "How long we keep information"),
+    ("privacy-sharing", "Who we share information with"),
+    ("privacy-outside-uk", "Sharing information outside the UK"),
+    ("privacy-complain", "How to complain"),
+]
+
+
+def _policy_heading(sections, section_id):
+    return html.H5(dict(sections)[section_id], id=section_id, className="mt-4 mb-3",
+                   style={'textDecoration': 'underline', 'fontSize': '22px'})
+
+
+def _policy_title(title):
+    return html.H5(title, className="mb-3", style={'textDecoration': 'underline', 'fontSize': '26px'})
+
+
+def _policy_page(page_id, sections, content):
+    """Privacy/cookie policy page: sticky section nav on the left (like the About page), text on the right."""
+    return html.Div([
+        dbc.Row([
+            dbc.Col(
+                html.Div(
+                    [
+                        html.A(title, href=f"#{section_id}", className="d-block mb-2")
+                        for section_id, title in sections
+                    ] + [
+                        html.A("↑ Back to top", href=f"#{page_id}", className="d-block mt-4"),
+                    ],
+                    className="sticky-top", style={
+                        'top': '20px', 'marginTop': '16px', 'padding': '20px',
+                        'border': '1px solid rgba(0, 0, 0, 0.176)', 'borderRadius': '14px',
+                        'backgroundColor': '#fff'
+                    }
+                ),
+                width=3
+            ),
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(content),
+                    className="mb-4", style={'borderRadius': '14px', 'border': 'none'}
+                ),
+                width=8
+            )
+        ])
+    ], id=page_id, style={'padding': '20px'})
+
+
+def _privacy_heading(section_id):
+    return _policy_heading(PRIVACY_SECTIONS, section_id)
+
+
+def _privacy_email_link():
+    return html.A(PRIVACY_EMAIL, href=f"mailto:{PRIVACY_EMAIL}")
+
+
+def _privacy_right(name, text):
+    return html.Li([html.B(name), f" - {text}"])
+
+
+def _privacy_transfer(intro):
+    return html.Div([
+        html.P(intro, className="mb-1"),
+        html.P(
+            "For further information or to obtain a copy of the appropriate safeguard for any of "
+            "the transfers below, please contact us using the contact information provided above."
+        ),
+        html.P([html.B("Organisation name: "), "Google LLC"], className="mb-1"),
+        html.P([html.B("Category of recipient: "), "Tech"], className="mb-1"),
+        html.P([html.B("Country the personal information is sent to: "), "United States"], className="mb-1"),
+        html.P([
+            html.B("How the transfer complies with UK data protection law: "),
+            "The country or sector has been assessed as providing adequate protection to data "
+            "subjects (also known as Adequacy Regulations or UK data bridge)",
+        ]),
+    ])
+
+
+privacy_notice_content = [
+    _policy_title("Privacy Notice"),
+    html.P("This privacy notice tells you what to expect us to do with your personal information."),
+
+    _privacy_heading("privacy-contact"),
+    html.H6("Email", className="fw-bold mb-1"),
+    html.P(_privacy_email_link()),
+
+    _privacy_heading("privacy-what"),
+    html.P([
+        "We collect or use the following information to ",
+        html.B("provide and improve products and services for clients"), ":",
+    ]),
+    html.Ul([
+        html.Li("Website user information (including information about your age, gender, "
+                "interests and the city you were in when you used the website)"),
+        html.Li("Usage data (including information about how you interact with and use our "
+                "website, such as the pages you visit, time spent on those pages and any files "
+                "you download)"),
+    ]),
+
+    _privacy_heading("privacy-lawful"),
+    html.P(
+        "Under UK data protection law, we must have a “lawful basis” for collecting and "
+        "using your personal information. There is a list of possible lawful bases in the UK "
+        "GDPR. You can find out more about lawful bases on the ICO’s website."
+    ),
+    html.P(
+        "Which lawful basis we rely on may affect your data protection rights which are set out "
+        "in brief below. You can find out more about your data protection rights and the "
+        "exemptions which may apply on the ICO’s website:"
+    ),
+    html.Ul([
+        _privacy_right(
+            "Your right of access",
+            "You have the right to ask us for copies of your personal information. You can "
+            "request other information such as details about where we get personal information "
+            "from and who we share personal information with. There are some exemptions which "
+            "means you may not receive all the information you ask for. Read more about the "
+            "right of access."
+        ),
+        _privacy_right(
+            "Your right to rectification",
+            "You have the right to ask us to correct or delete personal information you think is "
+            "inaccurate or incomplete. Read more about the right to rectification."
+        ),
+        _privacy_right(
+            "Your right to erasure",
+            "You have the right to ask us to delete your personal information. Read more about "
+            "the right to erasure."
+        ),
+        _privacy_right(
+            "Your right to restriction of processing",
+            "You have the right to ask us to limit how we can use your personal information. "
+            "Read more about the right to restriction of processing."
+        ),
+        _privacy_right(
+            "Your right to object to processing",
+            "You have the right to object to the processing of your personal data. Read more "
+            "about the right to object to processing."
+        ),
+        _privacy_right(
+            "Your right to data portability",
+            "You have the right to ask that we transfer the personal information you gave us to "
+            "another organisation, or to you. Read more about the right to data portability."
+        ),
+        _privacy_right(
+            "Your right to withdraw consent",
+            "When we use consent as our lawful basis you have the right to withdraw your consent "
+            "at any time. Read more about the right to withdraw consent."
+        ),
+    ]),
+    html.P(
+        "If you make a request, we must respond to you without undue delay and in any event "
+        "within one month.", className="mb-1"
+    ),
+    html.P(
+        "To make a data protection rights request, please contact us using the contact details "
+        "at the top of this privacy notice."
+    ),
+    html.H6("Our lawful bases for the collection and use of your data", className="fw-bold mt-3 mb-2"),
+    html.P([
+        "Our lawful bases for collecting or using personal information to ",
+        html.B("provide and improve products and services for clients"), " are:",
+    ]),
+    html.Ul([
+        html.Li(
+            "Consent - we have permission from you after we gave you all the relevant "
+            "information. All of your data protection rights may apply, except the right to "
+            "object. To be clear, you do have the right to withdraw your consent at any time."
+        ),
+    ]),
+
+    _privacy_heading("privacy-source"),
+    html.Ul([html.Li(["Third parties:", html.Ul([html.Li("Google LLC")])])]),
+
+    _privacy_heading("privacy-retention"),
+    html.P(
+        "Data on age, gender, and interests are retained for two months. All other data is "
+        "retained for 14 months. When data reaches the end of the retention period, it is "
+        "deleted automatically on a monthly basis."
+    ),
+    html.P(
+        "For more information on how long we store your personal information or the criteria we "
+        "use to determine this please contact us using the details provided above."
+    ),
+
+    _privacy_heading("privacy-sharing"),
+    html.H6("Data processors", className="fw-bold mb-1"),
+    html.P([
+        html.B("Google LLC, Tech industry"), html.Br(),
+        "This data processor provides Google Analytics, a web analytics service, for us.",
+    ]),
+
+    _privacy_heading("privacy-outside-uk"),
+    _privacy_transfer(
+        "Where necessary, we may transfer personal information outside of the UK. When doing so, "
+        "we comply with the UK GDPR, making sure appropriate safeguards are in place."
+    ),
+    _privacy_transfer(
+        "Where necessary, our data processors will share personal information outside of the UK. "
+        "When doing so, they comply with the UK GDPR, making sure appropriate safeguards are in "
+        "place."
+    ),
+
+    _privacy_heading("privacy-complain"),
+    html.P(
+        "If you have any concerns about our use of your personal information, you can make a "
+        "data protection complaint to us:", className="mb-1"
+    ),
+    html.P([html.B("Email: "), _privacy_email_link()]),
+    html.P(
+        "If you remain unhappy with how we’ve used your data after raising a complaint with "
+        "us, you can also complain to the ICO."
+    ),
+    html.P([
+        "The ICO’s address:", html.Br(),
+        "ICO Head Office", html.Br(),
+        "4th Floor, No.3 Circle Square", html.Br(),
+        "5 Hawkshaw Street", html.Br(),
+        "Manchester", html.Br(),
+        "M1 7BL",
+    ]),
+    html.P([
+        "Helpline number: 0303 123 1113", html.Br(),
+        "Website: ",
+        html.A("https://www.ico.org.uk/make-a-complaint",
+               href="https://www.ico.org.uk/make-a-complaint", target="_blank"),
+    ]),
+]
+
+
+COOKIE_SECTIONS = [
+    ("cookie-what", "What are cookies?"),
+    ("cookie-how", "How do we use cookies?"),
+    ("cookie-types", "Types of cookies we use"),
+    ("cookie-manage", "Manage cookie preferences"),
+]
+
+COOKIE_BROWSER_HELP = [
+    ("Chrome", "https://support.google.com/accounts/answer/32050"),
+    ("Safari", "https://support.apple.com/en-in/guide/safari/sfri11471/mac"),
+    ("Firefox", "https://support.mozilla.org/en-US/kb/clear-cookies-and-site-data-firefox?redirectslug=delete-cookies-remove-info-websites-stored&redirectlocale=en-US"),
+    ("Internet Explorer", "https://support.microsoft.com/en-us/topic/how-to-delete-cookie-files-in-internet-explorer-bca9446f-d873-78de-77ba-d42645fa52fc"),
+]
+
+COOKIE_TYPES = [
+    (
+        "Necessary",
+        "These cookies are needed for the website to work properly and cannot be switched off.",
+        [("cookieyes-consent", "CookieYes", "Remembers whether you have accepted or rejected cookies.")],
+    ),
+    (
+        "Analytics",
+        "These cookies help us understand how visitors use the website, so we can improve it.",
+        [
+            ("_ga", "Google Analytics", "Distinguishes between visitors, to count unique users."),
+            ("_ga_M1S3E969QK", "Google Analytics", "Keeps track of each visit (session)."),
+        ],
+    ),
+]
+
+cookie_policy_content = [
+    _policy_title("Cookie Policy"),
+    html.P("Effective date: October 11, 2026", className="mb-1"),
+    html.P("Last updated: October 11, 2026"),
+
+    _policy_heading(COOKIE_SECTIONS, "cookie-what"),
+    html.P(
+        "This Cookie Policy explains what cookies are, how we use them, the types of cookies we "
+        "use (i.e., the information we collect using cookies and how that information is used), "
+        "and how to manage your cookie settings."
+    ),
+    html.P(
+        "Cookies are small text files used to store small pieces of information. They are stored "
+        "on your device when a website loads in your browser. These cookies help ensure that the "
+        "website functions properly, enhance security, provide a better user experience, and "
+        "analyse performance to identify what works and where improvements are needed."
+    ),
+
+    _policy_heading(COOKIE_SECTIONS, "cookie-how"),
+    html.P(
+        "Like most online services, our website uses both first-party and third-party cookies "
+        "for various purposes. First-party cookies are primarily necessary for the website to "
+        "function properly and do not collect any personally identifiable data."
+    ),
+    html.P(
+        "The third-party cookies used on our website primarily help us understand how the "
+        "website performs, track how you interact with it, keep our services secure, and "
+        "enhance your overall user experience while improving the "
+        "speed of your future interactions with our website."
+    ),
+
+    _policy_heading(COOKIE_SECTIONS, "cookie-types"),
+    # Interim list based on the cookies seen locally - replace with the results of
+    # the CookieYes cookie scan once the site is live with Google Analytics.
+    html.P(
+        "The cookies used on this website fall into the categories below. Analytics cookies are "
+        "only set if you accept them."
+    ),
+    *[
+        html.Div([
+            html.H6(category, className="fw-bold mb-1"),
+            html.P(description, className="mb-2"),
+            dbc.Table(
+                [html.Thead(html.Tr([html.Th("Cookie"), html.Th("Set by"), html.Th("Purpose")]))]
+                + [html.Tbody([html.Tr([html.Td(html.Code(name)), html.Td(set_by), html.Td(purpose)])
+                               for name, set_by, purpose in cookies])],
+                bordered=True, size="sm", className="mb-4",
+            ),
+        ])
+        for category, description, cookies in COOKIE_TYPES
+    ],
+
+    _policy_heading(COOKIE_SECTIONS, "cookie-manage"),
+    html.Button("Consent Preferences", id="cookie-consent-preferences-btn",
+                className="btn btn-light border mb-3"),
+    html.P(
+        "You can modify your cookie settings anytime by clicking the 'Consent Preferences' "
+        "button above. This will allow you to revisit the cookie consent banner and update your "
+        "preferences or withdraw your consent immediately."
+    ),
+    html.P(
+        "Additionally, different browsers offer various methods to block and delete cookies used "
+        "by websites. You can adjust your browser settings to block or delete cookies. Below are "
+        "links to support documents on how to manage and delete cookies in major web browsers."
+    ),
+    *[
+        html.P([f"{browser}: ", html.A(url, href=url, target="_blank")], style={'overflowWrap': 'anywhere'})
+        for browser, url in COOKIE_BROWSER_HELP
+    ],
+    html.P("If you are using a different web browser, please refer to its official support documentation."),
+    html.P([
+        "Cookie Policy generated by ",
+        html.A("CookieYes - Cookie Policy Generator", href="https://www.cookieyes.com/cookie-policy-generator/",
+               target="_blank"),
+    ], className="mt-4"),
+]
 
 app.layout = html.Div([
     html.Div(
@@ -2433,10 +2824,24 @@ app.layout = html.Div([
                     ])
 
                 ], id='about-page-content', style={'padding': '20px'})
-            ])
+            ]),
+
+            dcc.Tab(value='tab-5', children=_policy_page('privacy-page-content', PRIVACY_SECTIONS, privacy_notice_content)),
+
+            dcc.Tab(value='tab-6', children=_policy_page('cookie-page-content', COOKIE_SECTIONS, cookie_policy_content)),
 
         ])
-    ], fluid=True)
+    ], fluid=True),
+
+    html.Footer(
+        [
+            dcc.Link("Privacy notice", href=PRIVACY_PATH),
+            html.Span("|", className="mx-2 text-muted"),
+            dcc.Link("Cookie policy", href=COOKIE_PATH),
+        ],
+        className="text-center py-3",
+        style={'fontSize': '13px'}
+    ),
 ])
 
 
@@ -2446,7 +2851,8 @@ app.layout = html.Div([
 
 # ── Top nav (drives the hidden dcc.Tabs) ──────────────────
 #
-# Each tab gets its own URL (/, /petition-overview, /all-open-petitions, /about).
+# Each tab gets its own URL (/, /petition-overview, /all-open-petitions, /about,
+# and /privacy-notice, which is reached from the footer link rather than the nav).
 # Clicking a nav link updates the URL (navlink_to_url); the URL is the single
 # source of truth for which tab/navlink is active (switch_tab), so a direct
 # link, a page refresh, or the browser back/forward buttons all land on the
@@ -2509,6 +2915,10 @@ def switch_tab(pathname):
         return 'tab-3', False, False, True, False
     if pathname == '/about':
         return 'tab-4', False, False, False, True
+    if pathname == PRIVACY_PATH:
+        return 'tab-5', False, False, False, False
+    if pathname == COOKIE_PATH:
+        return 'tab-6', False, False, False, False
     return 'tab-1', True, False, False, False
 
 
