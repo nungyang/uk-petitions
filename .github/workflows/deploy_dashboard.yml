@@ -1,15 +1,12 @@
 name: Deploy Dashboard
 
 on:
-  workflow_run:
-    workflows: ["Daily Scraper 2"]
-    types:
-      - completed
+  # Scheduled runs come via daily_pipeline.yml, after all scrapers finish
+  workflow_call:
   workflow_dispatch:
 
 jobs:
   deploy-to-railway:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

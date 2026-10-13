@@ -1,0 +1,29 @@
+name: Daily Pipeline
+
+# Runs the scrapers, then deploys the dashboard once all of them have
+# finished, even if some failed. (workflow_run can't wait on multiple
+# workflows - it fires when any one of them completes - so the ordering
+# lives here via `needs`.)
+on:
+  schedule:
+    - cron: '0 2 * * *' # runs every day at 2am UTC
+  workflow_dispatch:
+
+jobs:
+  scraper-1:
+    uses: ./.github/workflows/daily_web_scraping1.yml
+    secrets: inherit
+
+  scraper-2:
+    uses: ./.github/workflows/daily_web_scraping2.yml
+    secrets: inherit
+
+  closed-petitions:
+    uses: ./.github/workflows/scraping_closed_petitions.yml
+    secrets: inherit
+
+  deploy:
+    needs: [scraper-1, scraper-2, closed-petitions]
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/deploy_dashboard.yml
+    secrets: inherit

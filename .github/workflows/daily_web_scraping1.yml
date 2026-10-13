@@ -1,8 +1,8 @@
 name: Daily Scraper 1
 
 on:
-  schedule:
-    - cron: '0 2 * * *' # runs every day at 2am UTC
+  # Scheduled runs come via daily_pipeline.yml
+  workflow_call:
   workflow_dispatch:
 
 jobs:
