@@ -18,7 +18,9 @@ jobs:
     uses: ./.github/workflows/daily_web_scraping2.yml
     secrets: inherit
 
+  # Reads today's petitions_list, which scraper-1 writes
   closed-petitions:
+    needs: scraper-1
     uses: ./.github/workflows/scraping_closed_petitions.yml
     secrets: inherit
 
