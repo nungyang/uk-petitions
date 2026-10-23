@@ -65,3 +65,4 @@ Below is a log to track changes made to web scraping to help understand any disc
 | Date | Description of change |
 |----------|----------|
 | 7 July 2026 | Changed time that GitHub actions runs web scraping from 6am to 2am. This is because there can be some delay in the time that Github actions runs the code and it was actually pulling the data at around 11am and 12pm. I wanted the data to be updated before someone accesses it in the morning.| |
+| October 2026 | Changed the data pipeline for scraping, which had actually caused an error so between 14 Oct and 23 October, petitions that closed the day before were not scrapped an added to AWS.| |
